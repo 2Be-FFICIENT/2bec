@@ -3,9 +3,9 @@ mod http;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-/// twobec - a small command-line tool with an HTTP backend.
+/// 2bec - a small command-line tool with an HTTP backend.
 #[derive(Parser, Debug)]
-#[command(name = "twobec", version, about, long_about = None)]
+#[command(name = "2bec", version, about, long_about = None)]
 struct Cli {
     /// Base URL used by all requests (can also be set via TWOBEC_BASE_URL)
     #[arg(long, env = "TWOBEC_BASE_URL", default_value = "https://httpbin.org")]

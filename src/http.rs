@@ -27,7 +27,7 @@ impl Client {
         let mut headers = HeaderMap::new();
         headers.insert(
             USER_AGENT,
-            HeaderValue::from_static(concat!("twobec/", env!("CARGO_PKG_VERSION"))),
+            HeaderValue::from_static(concat!("2bec/", env!("CARGO_PKG_VERSION"))),
         );
         if let Some(t) = token {
             let v = HeaderValue::from_str(&format!("Bearer {t}"))

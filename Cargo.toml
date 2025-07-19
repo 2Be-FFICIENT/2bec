@@ -2,6 +2,11 @@
 name = "twobec"
 version = "0.1.0"
 edition = "2024"
+description = "Small command-line tool with an HTTP backend"
+
+[[bin]]
+name = "2bec"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.104"
