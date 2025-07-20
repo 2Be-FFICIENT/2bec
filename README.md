@@ -1,6 +1,8 @@
 # 2bec
 
-A small command-line tool with an HTTP backend, written in Rust.
+`2bec` is the command-line client for the 2Be-FFICIENT solution. It lets you call
+the 2Be-FFICIENT API directly from your terminal and scripts, without going
+through the web interface.
 
 ## Requirements
 
@@ -33,3 +35,7 @@ Run `./2bec.sh --help` for all commands and options.
 | `--base-url` | `TWOBEC_BASE_URL`    | `https://httpbin.org` |
 | `--token`    | `TWOBEC_TOKEN`       | none                  |
 | `--timeout`  |                      | `30` seconds          |
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
