@@ -22,19 +22,17 @@ Use the wrapper script, which builds the binary if needed:
 
 ```sh
 ./2bec.sh ping
-./2bec.sh get /get?x=1 --pretty
-echo '{"hello":"world"}' | ./2bec.sh post /post --pretty
 ```
 
 Run `./2bec.sh --help` for all commands and options.
 
 ## Configuration
 
-| Option       | Environment variable | Default               |
-|--------------|----------------------|-----------------------|
-| `--base-url` | `TWOBEC_BASE_URL`    | `https://httpbin.org` |
-| `--token`    | `TWOBEC_TOKEN`       | none                  |
-| `--timeout`  |                      | `30` seconds          |
+| Option      | Environment variable | Default                       |
+|-------------|----------------------|-------------------------------|
+| `--api-url` | `TWOBEC_API_URL`     | `https://api.2befficient.com` |
+| `--token`   | `TWOBEC_TOKEN`       | none                          |
+| `--timeout` |                      | `30` seconds                  |
 
 ## License
 
