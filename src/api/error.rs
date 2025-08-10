@@ -67,16 +67,16 @@ impl Problem {
 pub enum ApiError {
     /// 401 or 403 with an auth-related problem code.
     #[error("{}", auth_message(.0))]
-    Auth(Problem),
+    Auth(Box<Problem>),
     /// 429 `rate-limited`; `retry_after` is in seconds when the API sent it.
     #[error("rate limited by the API{}", retry_hint(*.retry_after))]
     RateLimited {
-        problem: Problem,
+        problem: Box<Problem>,
         retry_after: Option<u64>,
     },
     /// Any other problem+json answer.
     #[error("{}", problem_message(.0))]
-    Problem(Problem),
+    Problem(Box<Problem>),
     /// A failure status without a problem body.
     #[error("API answered HTTP {status}")]
     Status { status: u16, body: String },
@@ -94,6 +94,7 @@ impl ApiError {
                 body: body.to_string(),
             };
         };
+        let problem = Box::new(problem);
         match problem.code() {
             "rate-limited" => Self::RateLimited {
                 problem,
