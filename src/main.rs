@@ -1,9 +1,11 @@
+mod api;
 mod auth;
 mod config;
 mod http;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use std::process::ExitCode;
 
 /// 2bec - command-line client for the 2Be-FFICIENT API.
 #[derive(Parser, Debug)]
@@ -18,8 +20,12 @@ struct Cli {
     api_url: Option<String>,
 
     /// Request timeout in seconds
-    #[arg(long, default_value_t = 30)]
+    #[arg(long, default_value_t = 30, global = true)]
     timeout: u64,
+
+    /// Show error details (cause chain, trace id)
+    #[arg(long, short = 'v', global = true)]
+    verbose: bool,
 
     /// API token; overrides the one stored by `auth login`
     #[arg(long, env = "TWOBEC_TOKEN", hide_env_values = true, global = true)]
@@ -36,8 +42,35 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> ExitCode {
     let cli = Cli::parse();
+    match run(&cli).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            report_error(&err, cli.verbose);
+            api::error::exit_code_for(&err)
+        }
+    }
+}
+
+/// Print a one-line error to stderr; `--verbose` adds causes and trace id.
+fn report_error(err: &anyhow::Error, verbose: bool) {
+    eprintln!("error: {err}");
+    if !verbose {
+        return;
+    }
+    for cause in err.chain().skip(1) {
+        eprintln!("  caused by: {cause}");
+    }
+    if let Some(trace) = err
+        .downcast_ref::<api::error::ApiError>()
+        .and_then(|e| e.trace_id())
+    {
+        eprintln!("  trace id: {trace}");
+    }
+}
+
+async fn run(cli: &Cli) -> Result<()> {
     let config_dir = config::config_dir()?;
     let config = config::Config::load(&config_dir.join(config::CONFIG_FILE))?;
     let overrides = config::Overrides {
@@ -69,7 +102,7 @@ async fn main() -> Result<()> {
                 r.url, r.status, name, r.latency_ms
             );
             if r.status >= 400 {
-                std::process::exit(1);
+                anyhow::bail!("API answered HTTP {}", r.status);
             }
         }
     }
