@@ -5,8 +5,6 @@
 //! OAuth access token (a JWT). Only the key format is checked locally; any
 //! other value is sent as is and left to the server to judge.
 
-#![expect(dead_code, reason = "used by `auth login` / `auth status`")]
-
 use std::fmt;
 
 /// Prefix shared by every API key.
