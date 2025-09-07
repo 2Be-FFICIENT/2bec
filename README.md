@@ -26,17 +26,35 @@ Use the wrapper script, which builds the binary if needed:
 
 Run `./2bec.sh --help` for all commands and options.
 
+## Authentication
+
+The API accepts an API key as a bearer token. An API Admin creates keys in
+the web app under Administration > API access; the secret is shown once.
+
+```sh
+2bec auth login                 # prompts for the key (hidden input)
+echo "$KEY" | 2bec auth login   # or read it from stdin, for scripts
+2bec auth status                # who the key is, its scopes and rate limit
+2bec auth status --json         # same, for scripts
+2bec auth token                 # print the token, e.g. for curl
+2bec auth logout                # forget the stored key
+```
+
+`auth login` verifies the key against `GET /v2/me` before storing it, and
+warns when a `dev` or `next` key is used against the production API URL.
+
 ## Configuration
 
 Settings are resolved in this order: flags, then `TWOBEC_*` environment
 variables, then the config file, then built-in defaults.
 
-| Option      | Environment variable | Default                       |
-|-------------|----------------------|-------------------------------|
+| Option      | Environment variable | Default                                     |
+|-------------|----------------------|---------------------------------------------|
 | `--profile` | `TWOBEC_PROFILE`     | `default_profile` in config, else `default` |
-| `--api-url` | `TWOBEC_API_URL`     | `https://api.2befficient.com` |
-| `--token`   | `TWOBEC_TOKEN`       | token stored by `auth login`  |
-| `--timeout` |                      | `30` seconds                  |
+| `--api-url` | `TWOBEC_API_URL`     | `https://api.2befficient.com`               |
+| `--token`   | `TWOBEC_TOKEN`       | token stored by `auth login`                |
+| `--timeout` |                      | `30` seconds                                |
+| `--verbose` |                      | off; adds causes and the API trace id       |
 
 The config file is `~/.config/2bec/config.toml` (`$XDG_CONFIG_HOME` is
 honored; `TWOBEC_CONFIG_DIR` overrides the directory). It holds named
@@ -55,6 +73,21 @@ api_url = "http://localhost:5152"
 Tokens are kept per profile in `hosts.toml` in the same directory, written
 with owner-only permissions. `--token` / `TWOBEC_TOKEN` override the stored
 token for one invocation.
+
+## Exit codes
+
+| Code | Meaning                                                   |
+|------|-----------------------------------------------------------|
+| 0    | Success                                                   |
+| 1    | Generic error                                             |
+| 2    | Usage error (bad arguments)                               |
+| 3    | Authentication: missing, invalid, expired or revoked key, or missing scope |
+| 4    | Network: the API could not be reached                     |
+| 5    | The API refused the request for another reason            |
+| 6    | Rate limited and retries exhausted                        |
+
+Errors are one line on stderr; `--verbose` adds the cause chain and the
+API's trace id to quote in support requests.
 
 ## License
 
