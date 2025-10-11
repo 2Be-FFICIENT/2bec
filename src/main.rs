@@ -3,6 +3,8 @@ mod auth;
 mod commands;
 mod config;
 mod http;
+#[expect(dead_code, reason = "first user is `runs list`")]
+mod output;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
