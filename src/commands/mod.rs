@@ -1,6 +1,7 @@
 //! Command implementations, one module per resource.
 
 pub mod auth;
+pub mod runs;
 
 use anyhow::Result;
 
