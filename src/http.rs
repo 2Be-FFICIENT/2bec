@@ -42,8 +42,8 @@ pub struct Response {
 
 impl Response {
     /// Deserialize the JSON body.
-    pub fn json<T: DeserializeOwned>(&self) -> Result<T> {
-        serde_json::from_str(&self.body).context("API answered with unexpected JSON")
+    pub fn json<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
+        Ok(serde_json::from_str(&self.body)?)
     }
 }
 
@@ -87,8 +87,18 @@ impl Client {
 
     /// `GET` a path, retrying transient failures, and classify the answer.
     pub async fn get(&self, path: &str) -> Result<Response, ApiError> {
+        self.get_with(path, &[]).await
+    }
+
+    /// `GET` with query parameters (URL-encoded by reqwest).
+    pub async fn get_with(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+    ) -> Result<Response, ApiError> {
         let url = self.url(path);
-        self.send_with_retry(|| self.inner.get(&url)).await
+        self.send_with_retry(|| self.inner.get(&url).query(query))
+            .await
     }
 
     async fn send_with_retry<F>(&self, build: F) -> Result<Response, ApiError>

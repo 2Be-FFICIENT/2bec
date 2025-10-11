@@ -83,6 +83,9 @@ pub enum ApiError {
     /// Transport failure, timeout or unreadable body.
     #[error("cannot reach the API: {0}")]
     Network(#[from] reqwest::Error),
+    /// A 2xx body that does not match the expected shape.
+    #[error("API answered with unexpected JSON: {0}")]
+    Decode(#[from] serde_json::Error),
 }
 
 impl ApiError {
@@ -110,7 +113,7 @@ impl ApiError {
         match self {
             Self::Auth(_) => exit::AUTH,
             Self::RateLimited { .. } => exit::RATE_LIMITED,
-            Self::Problem(_) | Self::Status { .. } => exit::API,
+            Self::Problem(_) | Self::Status { .. } | Self::Decode(_) => exit::API,
             Self::Network(_) => exit::NETWORK,
         }
     }
@@ -132,7 +135,7 @@ impl ApiError {
             Self::Problem(p) => p.code() == "api-keys-unavailable" || p.status >= 500,
             Self::Status { status, .. } => *status >= 500,
             Self::Network(e) => e.is_timeout() || e.is_connect(),
-            Self::Auth(_) => false,
+            Self::Auth(_) | Self::Decode(_) => false,
         }
     }
 }
