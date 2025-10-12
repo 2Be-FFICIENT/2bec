@@ -86,6 +86,9 @@ pub enum ApiError {
     /// A 2xx body that does not match the expected shape.
     #[error("API answered with unexpected JSON: {0}")]
     Decode(#[from] serde_json::Error),
+    /// Writing a downloaded body to disk failed.
+    #[error("cannot write the downloaded file: {0}")]
+    Io(std::io::Error),
 }
 
 impl ApiError {
@@ -114,6 +117,7 @@ impl ApiError {
             Self::Auth(_) => exit::AUTH,
             Self::RateLimited { .. } => exit::RATE_LIMITED,
             Self::Problem(_) | Self::Status { .. } | Self::Decode(_) => exit::API,
+            Self::Io(_) => exit::GENERIC,
             Self::Network(_) => exit::NETWORK,
         }
     }
@@ -135,7 +139,7 @@ impl ApiError {
             Self::Problem(p) => p.code() == "api-keys-unavailable" || p.status >= 500,
             Self::Status { status, .. } => *status >= 500,
             Self::Network(e) => e.is_timeout() || e.is_connect(),
-            Self::Auth(_) | Self::Decode(_) => false,
+            Self::Auth(_) | Self::Decode(_) | Self::Io(_) => false,
         }
     }
 }
