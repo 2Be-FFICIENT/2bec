@@ -5,8 +5,10 @@ use clap::{Args, Subcommand};
 
 use super::Context;
 use crate::api::page::{Fetch, fetch_items};
-use crate::api::runs::{self, Artifact, Diagnosis, Run, RunListItem};
+use crate::api::runs::{self, Artifact, Diagnosis, Run, RunComment, RunListItem, RunTags};
+use crate::http::WriteOptions;
 use crate::output::{OutputArgs, Table, or_dash, short_time};
+use std::io::Read;
 
 #[derive(Args, Debug)]
 pub struct RunsArgs {
@@ -79,6 +81,102 @@ Examples:
         #[arg(long, short = 'o', value_name = "FILE")]
         output: Option<String>,
     },
+    /// Read and write the comments of a run
+    Comments(CommentsArgs),
+    /// Attach tags to a run (needs runs:write)
+    #[command(after_help = "Example:\n  2bec runs tag 7f3c... 1a2b... 3c4d...")]
+    Tag {
+        /// Run id
+        id: String,
+        /// Tag ids to attach
+        #[arg(required = true, value_name = "TAG_ID")]
+        tags: Vec<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Detach one tag from a run (needs runs:write)
+    Untag {
+        /// Run id
+        id: String,
+        /// Tag id to detach
+        tag: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+}
+
+#[derive(Args, Debug)]
+pub struct CommentsArgs {
+    #[command(subcommand)]
+    command: CommentsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum CommentsCommand {
+    /// List the comments of a run, oldest first
+    List {
+        /// Run id
+        run: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Show one comment and its ETag
+    Get {
+        /// Run id
+        run: String,
+        /// Comment id
+        comment: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Add a comment (needs runs:write)
+    #[command(after_help = "\
+TEXT may be a literal, `-` to read stdin, or `@file` to read a file.
+The request carries an Idempotency-Key, so a retried call does not post twice.")]
+    Add {
+        /// Run id
+        run: String,
+        /// Comment text (1 to 2048 characters)
+        text: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Replace the text of a comment you wrote (needs runs:write)
+    Edit {
+        /// Run id
+        run: String,
+        /// Comment id
+        comment: String,
+        /// New text; `-` for stdin, `@file` for a file
+        text: String,
+        /// Only update if the comment still has this ETag (from `comments get`)
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Delete a comment you wrote (needs runs:write)
+    #[command(alias = "rm")]
+    Delete {
+        /// Run id
+        run: String,
+        /// Comment id
+        comment: String,
+        /// Only delete if the comment still has this ETag
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+    },
+}
+
+#[derive(serde::Serialize)]
+struct CommentWrite<'a> {
+    text: &'a str,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TagsWrite<'a> {
+    tags: &'a [String],
 }
 
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,7 +295,200 @@ pub async fn run(ctx: &Context, args: RunsArgs) -> Result<()> {
         RunsCommand::Diagnosis { id, opale, output } => diagnosis(ctx, &id, opale, output).await,
         RunsCommand::Artifacts { id, output } => artifacts(ctx, &id, output).await,
         RunsCommand::Download { id, kind, output } => download(ctx, &id, kind, output).await,
+        RunsCommand::Comments(args) => comments(ctx, args.command).await,
+        RunsCommand::Tag { id, tags, output } => tag(ctx, &id, &tags, output).await,
+        RunsCommand::Untag { id, tag, output } => untag(ctx, &id, &tag, output).await,
     }
+}
+
+async fn comments(ctx: &Context, cmd: CommentsCommand) -> Result<()> {
+    match cmd {
+        CommentsCommand::List { run, output } => {
+            ensure_guid("run id", &run)?;
+            let page: crate::api::page::Page<RunComment> = ctx
+                .client()?
+                .get(&format!("v2/runs/{run}/comments"))
+                .await?
+                .json()?;
+            output.print(&page.items, "This run has no comments", || {
+                comment_table(&page.items)
+            })
+        }
+        CommentsCommand::Get {
+            run,
+            comment,
+            output,
+        } => {
+            ensure_guid("run id", &run)?;
+            ensure_guid("comment id", &comment)?;
+            let resp = ctx
+                .client()?
+                .get(&format!("v2/runs/{run}/comments/{comment}"))
+                .await?;
+            let c: RunComment = resp.json()?;
+            print_comment(&c, resp.etag.as_deref(), output)
+        }
+        CommentsCommand::Add { run, text, output } => {
+            ensure_guid("run id", &run)?;
+            let text = read_text(&text)?;
+            ensure_comment_text(&text)?;
+            let resp = ctx
+                .client()?
+                .post_json(
+                    &format!("v2/runs/{run}/comments"),
+                    &CommentWrite { text: &text },
+                    &WriteOptions::idempotent(),
+                )
+                .await?;
+            let c: RunComment = resp.json()?;
+            print_comment(&c, resp.etag.as_deref(), output)
+        }
+        CommentsCommand::Edit {
+            run,
+            comment,
+            text,
+            if_match,
+            output,
+        } => {
+            ensure_guid("run id", &run)?;
+            ensure_guid("comment id", &comment)?;
+            let text = read_text(&text)?;
+            ensure_comment_text(&text)?;
+            let write = WriteOptions {
+                idempotency_key: None,
+                if_match,
+            };
+            let resp = ctx
+                .client()?
+                .patch_merge(
+                    &format!("v2/runs/{run}/comments/{comment}"),
+                    &CommentWrite { text: &text },
+                    &write,
+                )
+                .await?;
+            let c: RunComment = resp.json()?;
+            print_comment(&c, resp.etag.as_deref(), output)
+        }
+        CommentsCommand::Delete {
+            run,
+            comment,
+            if_match,
+        } => {
+            ensure_guid("run id", &run)?;
+            ensure_guid("comment id", &comment)?;
+            let write = WriteOptions {
+                idempotency_key: None,
+                if_match,
+            };
+            ctx.client()?
+                .delete(&format!("v2/runs/{run}/comments/{comment}"), &write)
+                .await?;
+            eprintln!("Deleted comment {comment}");
+            Ok(())
+        }
+    }
+}
+
+fn comment_table(items: &[RunComment]) -> Table {
+    let mut t = Table::new(["ID", "AT", "AUTHOR", "TEXT"]);
+    for c in items {
+        t.row([
+            c.id.clone(),
+            short_time(&c.at),
+            c.author.clone(),
+            c.text.replace('\n', " "),
+        ]);
+    }
+    t
+}
+
+fn print_comment(c: &RunComment, etag: Option<&str>, out: OutputArgs) -> Result<()> {
+    if out.json {
+        let mut v = serde_json::to_value(c)?;
+        if let Some(e) = etag {
+            v["etag"] = e.into();
+        }
+        return crate::output::print_json(&v);
+    }
+    println!("Comment: {}", c.id);
+    println!("Author:  {}", c.author);
+    println!("At:      {}", c.at);
+    if let Some(e) = etag {
+        println!("ETag:    {e}");
+    }
+    println!();
+    println!("{}", c.text);
+    Ok(())
+}
+
+fn ensure_comment_text(text: &str) -> Result<()> {
+    let n = text.chars().count();
+    if n == 0 {
+        bail!("the comment text is empty");
+    }
+    if n > 2048 {
+        bail!("the comment text has {n} characters; the limit is 2048");
+    }
+    Ok(())
+}
+
+/// A text argument: literal, `-` for stdin, or `@path` for a file. Trailing
+/// whitespace is trimmed.
+pub fn read_text(arg: &str) -> Result<String> {
+    let raw = if arg == "-" {
+        let mut s = String::new();
+        std::io::stdin()
+            .lock()
+            .read_to_string(&mut s)
+            .map_err(|e| anyhow::anyhow!("cannot read stdin: {e}"))?;
+        s
+    } else if let Some(path) = arg.strip_prefix('@') {
+        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("cannot read {path}: {e}"))?
+    } else {
+        arg.to_string()
+    };
+    Ok(raw.trim_end().to_string())
+}
+
+async fn tag(ctx: &Context, id: &str, tags: &[String], out: OutputArgs) -> Result<()> {
+    ensure_guid("run id", id)?;
+    for t in tags {
+        ensure_guid("tag id", t)?;
+    }
+    let result: RunTags = ctx
+        .client()?
+        .post_json(
+            &format!("v2/runs/{id}/tags"),
+            &TagsWrite { tags },
+            &WriteOptions::idempotent(),
+        )
+        .await?
+        .json()?;
+    print_tags(&result, out)
+}
+
+async fn untag(ctx: &Context, id: &str, tag: &str, out: OutputArgs) -> Result<()> {
+    ensure_guid("run id", id)?;
+    ensure_guid("tag id", tag)?;
+    let result: RunTags = ctx
+        .client()?
+        .delete(
+            &format!("v2/runs/{id}/tags/{tag}"),
+            &WriteOptions::default(),
+        )
+        .await?
+        .json()?;
+    print_tags(&result, out)
+}
+
+fn print_tags(result: &RunTags, out: OutputArgs) -> Result<()> {
+    out.print(result, "The run has no tags", || {
+        let mut t = Table::new(["TAG ID", "NAME"]);
+        for tag in &result.tags {
+            t.row([tag.id.clone(), tag.name.clone()]);
+        }
+        t
+    })
 }
 
 async fn diagnosis(ctx: &Context, id: &str, opale: bool, out: OutputArgs) -> Result<()> {
