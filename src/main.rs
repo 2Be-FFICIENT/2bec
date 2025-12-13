@@ -107,7 +107,12 @@ async fn run(cli: Cli) -> Result<()> {
     };
     let settings = config::Settings::resolve(&overrides, &config);
     let store = auth::store::FileStore::in_dir(&config_dir);
-    let credential = auth::resolve(cli.token.as_deref(), &settings.profile, &store)?;
+    let mut credential = auth::resolve(cli.token.as_deref(), &settings.profile, &store)?;
+    let skip_refresh = matches!(&cli.command, Command::Auth(a) if a.skips_refresh());
+    if !skip_refresh {
+        let http = commands::plain_http(cli.timeout)?;
+        auth::refresh_if_needed(&mut credential, &settings, &store, &http).await;
+    }
     let ctx = commands::Context {
         settings,
         store,
