@@ -1,5 +1,7 @@
 //! Authentication: credential storage and token resolution.
 
+#[expect(dead_code, reason = "wired by the browser `auth login`")]
+pub mod oauth;
 pub mod store;
 pub mod token;
 
