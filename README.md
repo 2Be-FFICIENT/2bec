@@ -28,20 +28,36 @@ Run `./2bec.sh --help` for all commands and options.
 
 ## Authentication
 
-The API accepts an API key as a bearer token. An API Admin creates keys in
-the web app under Administration > API access; the secret is shown once.
+Two ways in. The browser login signs you in as yourself; an API key
+authenticates as a key an API Admin created in the web app under
+Administration > API access (the secret is shown once).
 
 ```sh
-2bec auth login                 # prompts for the key (hidden input)
-echo "$KEY" | 2bec auth login   # or read it from stdin, for scripts
-2bec auth status                # who the key is, its scopes and rate limit
+2bec auth login                 # opens the browser, logs you in as yourself
+2bec auth login --no-browser    # prints the URL to open elsewhere (SSH, containers)
+2bec auth login --with-token    # prompts for an API key (hidden input)
+echo "$KEY" | 2bec auth login   # reads an API key from stdin, for scripts
+2bec auth status                # who you are, scopes, expiry, rate limit
 2bec auth status --json         # same, for scripts
 2bec auth token                 # print the token, e.g. for curl
-2bec auth logout                # forget the stored key
+2bec auth logout                # forget the credential (and revoke the login)
 ```
 
-`auth login` verifies the key against `GET /v2/me` before storing it, and
-warns when a `dev` or `next` key is used against the production API URL.
+The browser login uses the authorization code flow with PKCE against the
+2Be-FFICIENT identity server (client id `2bec`, loopback redirect). Access
+tokens last an hour and are renewed automatically from the refresh token
+for 30 days, after which you log in again. Person logins ignore
+`Idempotency-Key` and never get `webhooks:write`; use an API key for those.
+
+Profiles can pin the identity server and client for other environments:
+
+```toml
+[profiles.dev]
+api_url = "http://localhost:5152"
+issuer = "https://identity.2befficient.com"
+oauth_client_id = "2bec"
+api_resource = "https://api.2befficient.com"
+```
 
 ## Runs
 
@@ -91,8 +107,8 @@ api_url = "https://api.2befficient.com"
 api_url = "http://localhost:5152"
 ```
 
-Tokens are kept per profile in `hosts.toml` in the same directory, written
-with owner-only permissions. `--token` / `TWOBEC_TOKEN` override the stored
+Credentials are kept per profile in `hosts.toml` in the same directory,
+written with owner-only permissions. `--token` / `TWOBEC_TOKEN` override the stored
 token for one invocation.
 
 ## Exit codes
