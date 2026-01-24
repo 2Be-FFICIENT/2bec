@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod runs;
+pub mod scenarios;
 
 use anyhow::Result;
 
