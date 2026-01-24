@@ -6,7 +6,9 @@ use clap::{Args, Subcommand};
 use super::Context;
 use super::runs::ensure_guid;
 use crate::api::page::{Fetch, fetch_items};
-use crate::api::scenarios::{self, Scenario, ScenarioCalendar, ScenarioListItem, ScenarioVersions};
+use crate::api::scenarios::{
+    self, Scenario, ScenarioCalendar, ScenarioGroup, ScenarioListItem, ScenarioVersions,
+};
 use crate::output::{OutputArgs, Table, or_dash, short_time};
 
 #[derive(Args, Debug)]
@@ -111,6 +113,36 @@ the current script version has been observed."
         #[arg(long, short = 'o', value_name = "FILE")]
         output: Option<String>,
     },
+    /// Browse the groups scenarios are organized in
+    Groups(GroupsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct GroupsArgs {
+    #[command(subcommand)]
+    command: GroupsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum GroupsCommand {
+    /// List the groups, by name, with how many scenarios each holds
+    List {
+        /// Maximum number of groups to print
+        #[arg(long, default_value_t = 50, conflicts_with = "all")]
+        limit: u64,
+        /// Fetch every group
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Show one group and the scenarios of it the credential sees
+    Get {
+        /// Group id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
 }
 
 /// Query parameters of `scenarios list`, validated locally.
@@ -185,6 +217,60 @@ pub async fn run(ctx: &Context, args: ScenariosArgs) -> Result<()> {
             technical,
             output,
         } => download_doc(ctx, &id, technical, output).await,
+        ScenariosCommand::Groups(args) => groups(ctx, args.command).await,
+    }
+}
+
+async fn groups(ctx: &Context, cmd: GroupsCommand) -> Result<()> {
+    match cmd {
+        GroupsCommand::List { limit, all, output } => {
+            if !all && limit == 0 {
+                bail!("--limit must be at least 1");
+            }
+            let fetch = if all { Fetch::All } else { Fetch::Limit(limit) };
+            let page =
+                fetch_items::<ScenarioGroup>(&ctx.client()?, "v2/scenario-groups", &[], fetch)
+                    .await?;
+            output.print(&page.items, "No scenario group visible", || {
+                let mut t = Table::new(["ID", "NAME", "SCENARIOS", "HIDDEN"]);
+                for g in &page.items {
+                    t.row([
+                        g.id.clone(),
+                        g.name.clone(),
+                        g.scenarios.len().to_string(),
+                        g.hidden_count.to_string(),
+                    ]);
+                }
+                t
+            })
+        }
+        GroupsCommand::Get { id, output } => {
+            ensure_guid("group id", &id)?;
+            let g: ScenarioGroup = ctx
+                .client()?
+                .get(&format!("v2/scenario-groups/{id}"))
+                .await?
+                .json()?;
+            if output.json {
+                return crate::output::print_json(&g);
+            }
+            println!("Group:     {}", g.id);
+            println!("Name:      {}", g.name);
+            println!(
+                "Scenarios: {} visible, {} hidden by the access profile",
+                g.scenarios.len(),
+                g.hidden_count
+            );
+            if !g.scenarios.is_empty() {
+                println!();
+                let mut t = Table::new(["ID", "NAME", "KIND"]);
+                for s in &g.scenarios {
+                    t.row([s.id.clone(), s.name.clone(), kind_label(&s.kind, false)]);
+                }
+                t.print();
+            }
+            Ok(())
+        }
     }
 }
 
