@@ -965,30 +965,8 @@ async fn download(
 ) -> Result<()> {
     ensure_guid("run id", id)?;
     let path = format!("v2/runs/{id}/artifacts/{}", kind.path_segment());
-    let client = ctx.client()?;
     let target = output.unwrap_or_else(|| format!("{id}.{}", kind.extension()));
-    if target == "-" {
-        let mut stdout = std::io::stdout().lock();
-        client.download(&path, &mut stdout).await?;
-        return Ok(());
-    }
-    let tmp = format!("{target}.part");
-    let mut file =
-        std::fs::File::create(&tmp).map_err(|e| anyhow::anyhow!("cannot create {tmp}: {e}"))?;
-    let result = client.download(&path, &mut file).await;
-    drop(file);
-    match result {
-        Ok((_, bytes)) => {
-            std::fs::rename(&tmp, &target)
-                .map_err(|e| anyhow::anyhow!("cannot write {target}: {e}"))?;
-            eprintln!("Saved {target} ({bytes} bytes)");
-            Ok(())
-        }
-        Err(e) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(e.into())
-        }
-    }
+    super::download_to(&ctx.client()?, &path, &target).await
 }
 
 async fn list(

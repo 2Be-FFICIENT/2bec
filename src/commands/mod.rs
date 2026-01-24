@@ -20,6 +20,33 @@ pub fn plain_http(timeout_secs: u64) -> Result<reqwest::Client> {
         .map_err(|e| anyhow::anyhow!("failed to build HTTP client: {e}"))
 }
 
+/// Stream `path` into `target`: stdout for `-`, else a temp file renamed
+/// into place on success so a failed download leaves nothing behind.
+pub async fn download_to(client: &Client, path: &str, target: &str) -> Result<()> {
+    if target == "-" {
+        let mut stdout = std::io::stdout().lock();
+        client.download(path, &mut stdout).await?;
+        return Ok(());
+    }
+    let tmp = format!("{target}.part");
+    let mut file =
+        std::fs::File::create(&tmp).map_err(|e| anyhow::anyhow!("cannot create {tmp}: {e}"))?;
+    let result = client.download(path, &mut file).await;
+    drop(file);
+    match result {
+        Ok((_, bytes)) => {
+            std::fs::rename(&tmp, target)
+                .map_err(|e| anyhow::anyhow!("cannot write {target}: {e}"))?;
+            eprintln!("Saved {target} ({bytes} bytes)");
+            Ok(())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e.into())
+        }
+    }
+}
+
 /// Everything a command needs: resolved settings, the credential store and
 /// the credential picked for this invocation.
 pub struct Context {
