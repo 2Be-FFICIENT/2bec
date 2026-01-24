@@ -8,3 +8,5 @@ pub mod page;
     reason = "diagnosis, artifact, tag and request types land with their commands"
 )]
 pub mod runs;
+#[expect(dead_code, reason = "scenario types land with their commands")]
+pub mod scenarios;
