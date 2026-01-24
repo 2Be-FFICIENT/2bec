@@ -6,8 +6,8 @@ use clap::{Args, Subcommand};
 use super::Context;
 use super::runs::ensure_guid;
 use crate::api::page::{Fetch, fetch_items};
-use crate::api::scenarios::{self, Scenario, ScenarioListItem};
-use crate::output::{OutputArgs, Table, or_dash};
+use crate::api::scenarios::{self, Scenario, ScenarioCalendar, ScenarioListItem, ScenarioVersions};
+use crate::output::{OutputArgs, Table, or_dash, short_time};
 
 #[derive(Args, Debug)]
 pub struct ScenariosArgs {
@@ -55,6 +55,61 @@ Examples:
         id: String,
         #[command(flatten)]
         output: OutputArgs,
+    },
+    /// List the saved versions of a scenario's script, newest first
+    #[command(after_help = "\
+Transaction scenarios only. The summary of a version is written in the
+background; a recent save may show a dash for a while.")]
+    Versions {
+        /// Scenario id
+        id: String,
+        /// How many months back to look (1 to 13) [default: 13]
+        #[arg(long, value_name = "N")]
+        months: Option<u8>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Show what decides when a scenario runs: cadence, hours, pauses, interruption windows
+    #[command(after_help = "\
+Examples:
+  2bec scenarios calendar 7f3c...
+  2bec scenarios calendar 7f3c... --from 2026-11-01T00:00:00Z --to 2026-12-01T00:00:00Z
+
+The range defaults to the next 14 days and spans at most 92 days.
+Transaction scenarios only, and only active ones.")]
+    Calendar {
+        /// Scenario id
+        id: String,
+        /// Start of the range, RFC 3339 [default: now]
+        #[arg(long, value_name = "TIME")]
+        from: Option<String>,
+        /// End of the range, RFC 3339 [default: from + 14 days]
+        #[arg(long, value_name = "TIME")]
+        to: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Download the documentation of a scenario as a PDF
+    #[command(
+        alias = "doc",
+        after_help = "\
+Examples:
+  2bec scenarios download-doc 7f3c...                 # writes livedoc-7f3c....pdf
+  2bec scenarios download-doc 7f3c... --technical -o doc.pdf
+  2bec scenarios download-doc 7f3c... -o - | lp
+
+Transaction scenarios only; 404 no-documentation until a successful run of
+the current script version has been observed."
+    )]
+    DownloadDoc {
+        /// Scenario id
+        id: String,
+        /// Add the technical details of each step
+        #[arg(long)]
+        technical: bool,
+        /// Destination file; `-` for stdout [default: livedoc-<id>.pdf]
+        #[arg(long, short = 'o', value_name = "FILE")]
+        output: Option<String>,
     },
 }
 
@@ -116,6 +171,190 @@ pub async fn run(ctx: &Context, args: ScenariosArgs) -> Result<()> {
             list(ctx, &query, limit, all, output).await
         }
         ScenariosCommand::Get { id, output } => get(ctx, &id, output).await,
+        ScenariosCommand::Versions { id, months, output } => {
+            versions(ctx, &id, months, output).await
+        }
+        ScenariosCommand::Calendar {
+            id,
+            from,
+            to,
+            output,
+        } => calendar(ctx, &id, from, to, output).await,
+        ScenariosCommand::DownloadDoc {
+            id,
+            technical,
+            output,
+        } => download_doc(ctx, &id, technical, output).await,
+    }
+}
+
+async fn versions(ctx: &Context, id: &str, months: Option<u8>, out: OutputArgs) -> Result<()> {
+    ensure_guid("scenario id", id)?;
+    let mut query = Vec::new();
+    if let Some(m) = months {
+        if !(1..=13).contains(&m) {
+            bail!("--months must be between 1 and 13");
+        }
+        query.push(("months", m.to_string()));
+    }
+    let v: ScenarioVersions = ctx
+        .client()?
+        .get_with(&format!("v2/scenarios/{id}/versions"), &query)
+        .await?
+        .json()?;
+    if out.json {
+        return crate::output::print_json(&v);
+    }
+    out.print(&v, "No version saved in this window", || {
+        let mut t = Table::new(["VERSION", "SAVED", "CURRENT", "STABLE", "SUMMARY"]);
+        for ver in &v.items {
+            t.row([
+                ver.version.to_string(),
+                short_time(&ver.saved_at),
+                if ver.current { "yes" } else { "" }.to_string(),
+                if ver.stable { "yes" } else { "" }.to_string(),
+                or_dash(ver.summary.as_deref()),
+            ]);
+        }
+        t
+    })?;
+    if v.older_versions > 0 {
+        eprintln!(
+            "{} older version(s) before {} not shown",
+            v.older_versions,
+            short_time(&v.since)
+        );
+    }
+    Ok(())
+}
+
+async fn calendar(
+    ctx: &Context,
+    id: &str,
+    from: Option<String>,
+    to: Option<String>,
+    out: OutputArgs,
+) -> Result<()> {
+    ensure_guid("scenario id", id)?;
+    let mut query = Vec::new();
+    if let Some(f) = from {
+        query.push(("from", f));
+    }
+    if let Some(t) = to {
+        query.push(("to", t));
+    }
+    let c: ScenarioCalendar = ctx
+        .client()?
+        .get_with(&format!("v2/scenarios/{id}/calendar"), &query)
+        .await?
+        .json()?;
+    if out.json {
+        return crate::output::print_json(&c);
+    }
+    println!("Scenario:  {}", c.scenario_id);
+    println!("Range:     {} to {}", c.from, c.to);
+    let mut cadence = format!("every {}", interval(Some(c.cadence.declared_seconds)));
+    if let Some(s) = c.cadence.scheduled_seconds
+        && s != c.cadence.declared_seconds
+    {
+        cadence.push_str(&format!(" (scheduled every {})", interval(Some(s))));
+    }
+    if c.cadence.on_demand {
+        cadence.push_str(", on demand");
+    }
+    if c.cadence.replay_acceleration {
+        cadence.push_str(", replay acceleration");
+    }
+    println!("Cadence:   {cadence}");
+    println!(
+        "Hours:     {}",
+        match &c.observation_hours {
+            Some(h) => format!(
+                "{} to {}{}",
+                h.start,
+                h.end,
+                if h.overnight { " (overnight)" } else { "" }
+            ),
+            None => "around the clock".into(),
+        }
+    );
+    if let Some(p) = &c.paused_since {
+        println!("Paused:    since {p}");
+    }
+    if !c.mates.is_empty() {
+        println!(
+            "Shares calendar with: {}",
+            c.mates
+                .iter()
+                .map(|m| format!("{} ({})", m.name, m.id))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if c.unavailable {
+        eprintln!("warning: the calendar could not be read; the windows are unknown");
+    }
+    if c.windows.is_empty() {
+        if crate::output::stdout_is_tty() {
+            eprintln!("No interruption window in this range");
+        }
+        return Ok(());
+    }
+    println!();
+    let mut t = Table::new(["START", "END", "EFFECT", "KIND", "INTERRUPTION", "COMMENT"]);
+    for w in &c.windows {
+        t.row([
+            short_time(&w.start),
+            short_time(&w.end),
+            if w.exclusion {
+                "no observation"
+            } else {
+                "observation only"
+            }
+            .to_string(),
+            w.kind.clone(),
+            w.interruption_id.clone(),
+            or_dash(w.comment.as_deref()),
+        ]);
+    }
+    t.print();
+    Ok(())
+}
+
+async fn download_doc(
+    ctx: &Context,
+    id: &str,
+    technical: bool,
+    output: Option<String>,
+) -> Result<()> {
+    ensure_guid("scenario id", id)?;
+    let path = format!(
+        "v2/scenarios/{id}/documentation.pdf{}",
+        if technical { "?technical=true" } else { "" }
+    );
+    let client = ctx.client()?;
+    let target = output.unwrap_or_else(|| format!("livedoc-{id}.pdf"));
+    if target == "-" {
+        let mut stdout = std::io::stdout().lock();
+        client.download(&path, &mut stdout).await?;
+        return Ok(());
+    }
+    let tmp = format!("{target}.part");
+    let mut file =
+        std::fs::File::create(&tmp).map_err(|e| anyhow::anyhow!("cannot create {tmp}: {e}"))?;
+    let result = client.download(&path, &mut file).await;
+    drop(file);
+    match result {
+        Ok((_, bytes)) => {
+            std::fs::rename(&tmp, &target)
+                .map_err(|e| anyhow::anyhow!("cannot write {target}: {e}"))?;
+            eprintln!("Saved {target} ({bytes} bytes)");
+            Ok(())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e.into())
+        }
     }
 }
 
