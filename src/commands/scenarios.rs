@@ -251,8 +251,8 @@ async fn groups(ctx: &Context, cmd: GroupsCommand) -> Result<()> {
                 .get(&format!("v2/scenario-groups/{id}"))
                 .await?
                 .json()?;
-            if output.json {
-                return crate::output::print_json(&g);
+            if output.wants_json() {
+                return output.print_json(&g);
             }
             println!("Group:     {}", g.id);
             println!("Name:      {}", g.name);
@@ -288,8 +288,8 @@ async fn versions(ctx: &Context, id: &str, months: Option<u8>, out: OutputArgs) 
         .get_with(&format!("v2/scenarios/{id}/versions"), &query)
         .await?
         .json()?;
-    if out.json {
-        return crate::output::print_json(&v);
+    if out.wants_json() {
+        return out.print_json(&v);
     }
     out.print(&v, "No version saved in this window", || {
         let mut t = Table::new(["VERSION", "SAVED", "CURRENT", "STABLE", "SUMMARY"]);
@@ -334,8 +334,8 @@ async fn calendar(
         .get_with(&format!("v2/scenarios/{id}/calendar"), &query)
         .await?
         .json()?;
-    if out.json {
-        return crate::output::print_json(&c);
+    if out.wants_json() {
+        return out.print_json(&c);
     }
     println!("Scenario:  {}", c.scenario_id);
     println!("Range:     {} to {}", c.from, c.to);
@@ -452,7 +452,7 @@ async fn list(
         }
         t
     })?;
-    if !out.json
+    if !out.wants_json()
         && let Some(total) = page.total
         && (total as usize) > page.items.len()
     {
@@ -471,8 +471,8 @@ async fn get(ctx: &Context, id: &str, out: OutputArgs) -> Result<()> {
         .get(&format!("v2/scenarios/{id}"))
         .await?
         .json()?;
-    if out.json {
-        return crate::output::print_json(&s);
+    if out.wants_json() {
+        return out.print_json(&s);
     }
     println!("Scenario:     {}", s.id);
     println!("Name:         {}", s.name);

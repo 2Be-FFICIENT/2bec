@@ -445,3 +445,31 @@ async fn scope_missing_is_an_auth_error() {
             "credential lacks the scope `scenarios:read`",
         ));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn jq_filters_the_json_output() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v2/scenarios"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "items": [item(SCENARIO, "Login", "transaction"), item(SOCIAL, "Brand on X", "socialMonitoring")],
+            "next": null, "total": 2
+        })))
+        .mount(&server)
+        .await;
+    let dir = TempDir::new().unwrap();
+
+    cmd(&server, &dir)
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .args(["scenarios", "list", "--jq", ".[].name"])
+        .assert()
+        .success()
+        .stdout(predicate::eq("\"Login\"\n\"Brand on X\"\n"));
+
+    cmd(&server, &dir)
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .args(["scenarios", "list", "--jq", ".[] | .nope("])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("jq exited with"));
+}
