@@ -83,6 +83,19 @@ Writes carry an `Idempotency-Key`, so a retried `comments add`, `tag` or
 against lost updates with the ETag shown by `comments get`. Text arguments
 accept `-` for stdin and `@file`.
 
+## Output
+
+Tables on a terminal, tab-separated text in a pipe, `--json` for the full
+payload (pretty on a terminal, compact in a pipe). `--jq EXPR` runs the JSON
+through the `jq` program on your PATH, so scripts can pick fields in place:
+
+```sh
+2bec scenarios list --jq '.[] | select(.active) | .id'
+2bec runs get <run> --jq '.steps[] | [.label, .durationMs] | @tsv'
+```
+
+Colors and spinners are never written into a pipe; `NO_COLOR` is honored.
+
 ## Scenarios
 
 ```sh
