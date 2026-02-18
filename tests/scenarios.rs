@@ -441,5 +441,7 @@ async fn scope_missing_is_an_auth_error() {
         .args(["scenarios", "list"])
         .assert()
         .code(3)
-        .stderr(predicate::str::contains("scope"));
+        .stderr(predicate::str::contains(
+            "credential lacks the scope `scenarios:read`",
+        ));
 }
