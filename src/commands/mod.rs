@@ -21,6 +21,15 @@ pub fn plain_http(timeout_secs: u64) -> Result<reqwest::Client> {
         .map_err(|e| anyhow::anyhow!("failed to build HTTP client: {e}"))
 }
 
+/// A JSON body argument: a literal, `-` for stdin, or `@path` for a file.
+pub fn read_json_body(arg: &str) -> Result<serde_json::Value> {
+    let text = runs::read_text(arg)?;
+    if text.trim().is_empty() {
+        anyhow::bail!("the body is empty");
+    }
+    serde_json::from_str(&text).map_err(|e| anyhow::anyhow!("the body is not valid JSON: {e}"))
+}
+
 /// Stream `path` into `target`: stdout for `-`, else a temp file renamed
 /// into place on success so a failed download leaves nothing behind.
 pub async fn download_to(client: &Client, path: &str, target: &str) -> Result<()> {
