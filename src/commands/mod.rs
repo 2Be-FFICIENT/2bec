@@ -1,5 +1,6 @@
 //! Command implementations, one module per resource.
 
+pub mod alerts;
 pub mod auth;
 pub mod runs;
 pub mod scenarios;
