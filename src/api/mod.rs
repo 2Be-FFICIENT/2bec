@@ -1,5 +1,7 @@
 //! API types and errors.
 
+#[expect(dead_code, reason = "alert types land with their commands")]
+pub mod alerts;
 pub mod error;
 pub mod me;
 pub mod page;
