@@ -113,6 +113,27 @@ Scenario ids are what `runs list --scenario` and `runs trigger` take.
 Versions, calendar and documentation exist for transaction scenarios only;
 the API answers `social-scenario` (409) for a social monitoring one.
 
+## Alerts
+
+```sh
+2bec alerts list                                     # configurations, what each watches, issues
+2bec alerts get <alert>                              # rules, recipients, schedule, health, ETag
+2bec alerts notifications --period today --channel sms   # what was actually sent
+2bec alerts create @alert.json                       # JSON body; needs alerts:write
+2bec alerts edit <alert> '{"active": false}' --if-match <etag>
+2bec alerts delete <alert> / duplicate <alert>
+2bec alerts test --channel sms --recipient <person>  # really sends a test alert
+2bec alerts channels
+2bec alerts groups list / get / create --name … --channel … --member <person>… / edit / delete
+2bec alerts recipients list / mute <person> / unmute <person>
+2bec alerts suspensions                              # switches, held steps, windows, muted people
+2bec alerts suspensions suspend|resume <scenario>/<step>…
+2bec alerts suspensions windows get|create|edit|end|delete
+```
+
+Writes carry an `Idempotency-Key`; `edit`/`delete` take `--if-match` with the
+ETag shown by `get`. JSON bodies accept a literal, `-` for stdin and `@file`.
+
 ## Configuration
 
 Settings are resolved in this order: flags, then `TWOBEC_*` environment
