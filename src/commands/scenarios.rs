@@ -4,7 +4,10 @@ use anyhow::{Result, bail};
 use clap::{Args, Subcommand};
 
 use super::Context;
+use super::alerts::canonical;
+use super::metrics::{self as fmt, PeriodArgs};
 use super::runs::ensure_guid;
+use crate::api::metrics::{self, ScenarioResponseTimes, ScenarioSynthesis, ScenarioVoiceQuality};
 use crate::api::page::{Fetch, fetch_items};
 use crate::api::scenarios::{
     self, Scenario, ScenarioCalendar, ScenarioGroup, ScenarioListItem, ScenarioVersions,
@@ -113,6 +116,61 @@ the current script version has been observed."
         #[arg(long, short = 'o', value_name = "FILE")]
         output: Option<String>,
     },
+    /// The quality indices of a transaction scenario over a period (last 7 days by default)
+    #[command(after_help = "\
+Examples:
+  2bec scenarios synthesis 7f3c...
+  2bec scenarios synthesis 7f3c... --period lastMonth --trend week
+  2bec scenarios synthesis 7f3c... --period today --json     # adds the 24 hours
+
+The synthesis and its five axes (duration, interactivity, completion,
+regularity, restoration) are out of 10, read against the client thresholds
+and the target ones. --trend picks the comparison windows: day, week or
+month. At most 366 days; 409 social-scenario for a social monitoring one,
+404 no-synthesis when nothing was observed.")]
+    Synthesis {
+        /// Scenario id
+        id: String,
+        #[command(flatten)]
+        period: PeriodArgs,
+        /// Comparison windows: day, week or month [default: day]
+        #[arg(long, value_name = "UNIT")]
+        trend: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Response times of a transaction scenario down to its steps (last 7 days by default)
+    #[command(after_help = "\
+Examples:
+  2bec scenarios response-times 7f3c...
+  2bec scenarios response-times 7f3c... --period last30d --json   # daily and hourly series
+
+Milliseconds over the successful runs. At most 92 days; 409 social-scenario
+for a social monitoring one. The fleet view is `2bec metrics response-times`.")]
+    ResponseTimes {
+        /// Scenario id
+        id: String,
+        #[command(flatten)]
+        period: PeriodArgs,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Line quality of every call of a voice (IVR) scenario (last 7 days by default)
+    #[command(after_help = "\
+Examples:
+  2bec scenarios voice-quality 7f3c...
+  2bec scenarios voice-quality 7f3c... --period yesterday --json
+
+At most 31 days; 409 not-a-voice-call for any other scenario. The fleet
+view is `2bec metrics voice-quality`.")]
+    VoiceQuality {
+        /// Scenario id
+        id: String,
+        #[command(flatten)]
+        period: PeriodArgs,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
     /// Browse the groups scenarios are organized in
     Groups(GroupsArgs),
 }
@@ -217,8 +275,355 @@ pub async fn run(ctx: &Context, args: ScenariosArgs) -> Result<()> {
             technical,
             output,
         } => download_doc(ctx, &id, technical, output).await,
+        ScenariosCommand::Synthesis {
+            id,
+            period,
+            trend,
+            output,
+        } => synthesis(ctx, &id, &period, trend.as_deref(), output).await,
+        ScenariosCommand::ResponseTimes { id, period, output } => {
+            response_times(ctx, &id, &period, output).await
+        }
+        ScenariosCommand::VoiceQuality { id, period, output } => {
+            voice_quality(ctx, &id, &period, output).await
+        }
         ScenariosCommand::Groups(args) => groups(ctx, args.command).await,
     }
+}
+
+async fn synthesis(
+    ctx: &Context,
+    id: &str,
+    period: &PeriodArgs,
+    trend: Option<&str>,
+    out: OutputArgs,
+) -> Result<()> {
+    ensure_guid("scenario id", id)?;
+    let mut query = period.query()?;
+    if let Some(t) = trend {
+        query.push(("trend", canonical("--trend", t, &metrics::TRENDS)?));
+    }
+    let s: ScenarioSynthesis = ctx
+        .client()?
+        .get_with(&format!("v2/scenarios/{id}/synthesis"), &query)
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&s);
+    }
+    println!("Scenario:      {} ({})", s.scenario.name, s.scenario.id);
+    println!(
+        "Period:        {} to {} (trend by {})",
+        s.from, s.to, s.trend
+    );
+    let i = &s.indices;
+    println!("Synthesis:     {}", index(&i.synthesis));
+    println!("  Duration:      {}", index(&i.duration));
+    println!("  Interactivity: {}", index(&i.interactivity));
+    println!("  Completion:    {}", index(&i.completion));
+    println!("  Regularity:    {}", index(&i.regularity));
+    println!("  Restoration:   {}", index(&i.restoration));
+    let sm = &s.summary;
+    println!(
+        "Runs:          {} ({} failed), availability {}",
+        sm.runs,
+        sm.failed_runs,
+        fmt::pct(Some(sm.availability_rate))
+    );
+    println!(
+        "Incidents:     {}, longest {}",
+        sm.incidents,
+        fmt::duration(sm.longest_incident_seconds)
+    );
+    if let Some(b) = &sm.bands {
+        println!(
+            "Bands:         {} on target, {} within client, {} insufficient, {} unacceptable",
+            b.target, b.client, b.insufficient, b.unacceptable
+        );
+    }
+    if let Some(p) = &s.percentiles {
+        println!(
+            "Response:      P50 {} ms, P85 {} ms over {} runs",
+            fmt::ms(p.p50_ms),
+            fmt::ms(p.p85_ms),
+            p.runs
+        );
+    }
+    if let Some(r) = &s.reliability {
+        println!(
+            "Restore:       MTTR {} over {} incident(s)",
+            fmt::opt_duration(r.mttr_seconds),
+            r.incidents
+        );
+    }
+    if let Some(trends) = &s.trends
+        && !trends.is_empty()
+    {
+        println!();
+        println!("Comparison windows:");
+        let mut t = Table::new(["WINDOW", "FROM", "TO", "INDEX", "AVAILABILITY"]);
+        for w in trends {
+            t.row([
+                w.window.clone(),
+                w.from.clone(),
+                w.to.clone(),
+                fmt::ratio(w.client_index),
+                fmt::pct(w.availability_rate),
+            ]);
+        }
+        t.print();
+    }
+    if let Some(days) = &s.daily
+        && !days.is_empty()
+    {
+        println!();
+        let mut t = Table::new(["DATE", "INDEX", "VALID", "RUNS", "FAILURES"]);
+        for d in days {
+            t.row([
+                d.date.clone(),
+                fmt::ratio(d.client_index),
+                if d.valid { "yes" } else { "no" }.to_string(),
+                d.runs.to_string(),
+                d.failures.to_string(),
+            ]);
+        }
+        t.print();
+    }
+    if let Some(hours) = &s.hourly
+        && !hours.is_empty()
+    {
+        println!();
+        let mut t = Table::new(["HOUR", "INDEX", "VALID", "RUNS", "FAILURES"]);
+        for h in hours {
+            t.row([
+                format!("{:02}h", h.hour),
+                fmt::ratio(h.client_index),
+                if h.valid { "yes" } else { "no" }.to_string(),
+                h.runs.to_string(),
+                h.failures.to_string(),
+            ]);
+        }
+        t.print();
+    }
+    Ok(())
+}
+
+fn index(i: &metrics::SynthesisIndex) -> String {
+    format!(
+        "{:.1} / 10 (target reading {:.1}){}",
+        i.client,
+        i.target,
+        if i.valid { "" } else { " [not enough runs]" }
+    )
+}
+
+async fn response_times(
+    ctx: &Context,
+    id: &str,
+    period: &PeriodArgs,
+    out: OutputArgs,
+) -> Result<()> {
+    ensure_guid("scenario id", id)?;
+    let query = period.query()?;
+    let r: ScenarioResponseTimes = ctx
+        .client()?
+        .get_with(&format!("v2/scenarios/{id}/response-times"), &query)
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&r);
+    }
+    println!("Scenario:      {} ({})", r.scenario.name, r.scenario.id);
+    println!(
+        "Period:        {}{}; previous {}",
+        fmt::period(&r.period),
+        if r.last_day_partial {
+            " (today still moving)"
+        } else {
+            ""
+        },
+        fmt::period(&r.previous_period)
+    );
+    println!(
+        "Thresholds:    {}{}",
+        match &r.thresholds {
+            Some(t) => thresholds(&scenarios::Thresholds {
+                target: t.target,
+                client: t.client,
+                unacceptable: t.unacceptable,
+            }),
+            None => "-".into(),
+        },
+        r.kilo_bytes_per_second
+            .map_or(String::new(), |k| format!(" at {k} kB/s"))
+    );
+    println!("Runs:          {} successful", r.successful_runs);
+    println!("Total:         {}", stats(r.total.as_ref()));
+    println!("Previous:      {}", stats(r.previous.as_ref()));
+    let b = &r.bands;
+    println!(
+        "Bands:         {} on target, {} within client, {} insufficient, {} unacceptable, {} unrated",
+        b.target, b.client, b.insufficient, b.unacceptable, b.unrated
+    );
+    if !r.steps.is_empty() {
+        println!();
+        let mut t = Table::new([
+            "#",
+            "STEP",
+            "CURRENT",
+            "P50 MS",
+            "P85 MS",
+            "MEAN MS",
+            "PREV MEAN",
+            "SHARE",
+            "SERVER",
+            "TARGET MS",
+        ]);
+        for st in &r.steps {
+            t.row([
+                st.order.to_string(),
+                or_dash(st.label.as_deref().or(st.name.as_deref())),
+                if st.current { "yes" } else { "no" }.to_string(),
+                fmt::ms(st.total.as_ref().map(|s| s.p50_ms)),
+                fmt::ms(st.total.as_ref().map(|s| s.p85_ms)),
+                fmt::ms(st.total.as_ref().map(|s| s.mean_ms)),
+                fmt::ms(st.previous.as_ref().map(|s| s.mean_ms)),
+                fmt::share(st.share_of_total),
+                st.server_time_share.map_or("-".into(), fmt::share),
+                fmt::ms(st.thresholds.as_ref().map(|t| t.target)),
+            ]);
+        }
+        t.print();
+    }
+    if !r.slowest_runs.is_empty() {
+        println!();
+        println!("Slowest runs:");
+        let mut t = Table::new([
+            "RUN",
+            "STARTED",
+            "TOTAL MS",
+            "SLOWEST STEP",
+            "STEP MS",
+            "BAND",
+        ]);
+        for run in &r.slowest_runs {
+            t.row([
+                run.id.clone(),
+                short_time(&run.started_at),
+                fmt::ms(Some(run.total_ms)),
+                or_dash(run.slowest_step.as_deref()),
+                fmt::ms(run.slowest_step_ms),
+                or_dash(run.band.as_deref()),
+            ]);
+        }
+        t.print();
+    }
+    Ok(())
+}
+
+fn stats(s: Option<&metrics::ResponseTimeStats>) -> String {
+    match s {
+        Some(s) => format!(
+            "P50 {} ms, P85 {} ms, mean {} ms, max {} ms over {} runs",
+            fmt::ms(Some(s.p50_ms)),
+            fmt::ms(Some(s.p85_ms)),
+            fmt::ms(Some(s.mean_ms)),
+            fmt::ms(Some(s.max_ms)),
+            s.count
+        ),
+        None => "-".into(),
+    }
+}
+
+async fn voice_quality(
+    ctx: &Context,
+    id: &str,
+    period: &PeriodArgs,
+    out: OutputArgs,
+) -> Result<()> {
+    ensure_guid("scenario id", id)?;
+    let query = period.query()?;
+    let v: ScenarioVoiceQuality = ctx
+        .client()?
+        .get_with(&format!("v2/scenarios/{id}/voice-quality"), &query)
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&v);
+    }
+    println!("Scenario:      {} ({})", v.scenario.name, v.scenario.id);
+    println!("Period:        {}", fmt::period(&v.period));
+    fmt::print_figures(&v.summary);
+    if !v.end_reasons.is_empty() {
+        println!(
+            "End reasons:   {}",
+            v.end_reasons
+                .iter()
+                .map(|r| format!("{} ({})", r.code, r.count))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    if !v.daily.is_empty() {
+        println!();
+        let mut t = Table::new([
+            "DATE",
+            "CALLS",
+            "MEASURED",
+            "AVG MOS",
+            "MIN MOS",
+            "ERR %",
+            "JITTER MS",
+            "POOR+BAD",
+        ]);
+        for d in &v.daily {
+            t.row([
+                d.date.clone(),
+                d.calls.to_string(),
+                d.measured.to_string(),
+                fmt::f1(d.average_mos),
+                fmt::f1(d.min_mos),
+                fmt::f1(d.average_error_rate_percent),
+                fmt::f1(d.average_jitter_ms),
+                (d.ratings.poor + d.ratings.bad).to_string(),
+            ]);
+        }
+        t.print();
+    }
+    if !v.calls.is_empty() {
+        println!();
+        println!("Calls:");
+        let mut t = Table::new([
+            "RUN",
+            "STARTED",
+            "STATUS",
+            "MOS",
+            "RATING",
+            "ERR %",
+            "JITTER MS",
+            "CODEC",
+            "END",
+        ]);
+        for c in &v.calls {
+            t.row([
+                c.id.clone(),
+                short_time(&c.started_at),
+                c.status.clone(),
+                if c.measurement == "measured" {
+                    fmt::f1(c.mos)
+                } else {
+                    c.measurement.clone()
+                },
+                or_dash(c.rating.as_deref()),
+                fmt::f1(c.error_rate_percent),
+                fmt::f1(c.jitter_avg_ms),
+                or_dash(c.codec.as_deref()),
+                or_dash(c.end_reason.as_deref()),
+            ]);
+        }
+        t.print();
+    }
+    Ok(())
 }
 
 async fn groups(ctx: &Context, cmd: GroupsCommand) -> Result<()> {
