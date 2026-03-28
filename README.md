@@ -106,12 +106,33 @@ Colors and spinners are never written into a pipe; `NO_COLOR` is honored.
 2bec scenarios versions <scenario> --months 3        # saves of the script, newest first
 2bec scenarios calendar <scenario> --from … --to …   # cadence, hours, interruption windows
 2bec scenarios download-doc <scenario> -o doc.pdf    # alias doc; --technical; -o - for stdout
+2bec scenarios synthesis <scenario> --trend week     # quality indices out of 10, comparison windows
+2bec scenarios response-times <scenario>             # milliseconds down to the step responsible
+2bec scenarios voice-quality <scenario>              # MOS, error rate, jitter of every call
 2bec scenarios groups list / get <group>
 ```
 
 Scenario ids are what `runs list --scenario` and `runs trigger` take.
 Versions, calendar and documentation exist for transaction scenarios only;
 the API answers `social-scenario` (409) for a social monitoring one.
+
+## Metrics
+
+```sh
+2bec metrics availability                            # last 30 days against the target, error budget
+2bec metrics availability --period lastMonth --granularity week --scenario <id>…
+2bec metrics response-times --period last30d         # fleet P50/P85 against the thresholds
+2bec metrics voice-quality                           # line quality of the voice (IVR) calls
+2bec metrics social --period today --interval 15 --events   # posts, incidents, grades
+2bec metrics social-analysis                         # daily AI reading: issues and keywords
+```
+
+Every read takes `--from/--to`, `--period` and `--tz` like `runs list`, and
+`--scenario` repeated to name the scenarios; without it the read covers every
+scenario the credential sees, up to the API cap (100 for availability, 15 for
+response times, 20 for voice, 30 for social), past which it asks to name them.
+Series by bucket are in `--json` only. One scenario's own figures are under
+`scenarios synthesis|response-times|voice-quality`. All need `metrics:read`.
 
 ## Alerts
 
