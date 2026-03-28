@@ -64,6 +64,8 @@ enum Command {
     Alerts(commands::alerts::AlertsArgs),
     /// Log in, show or drop the credential used to call the API
     Auth(commands::auth::AuthArgs),
+    /// Availability, response times, voice quality and social figures over a period
+    Metrics(commands::metrics::MetricsArgs),
     /// Check that the API answers and print its version and latency
     Ping,
     /// List and inspect scenario runs
@@ -127,6 +129,7 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Alerts(args) => commands::alerts::run(&ctx, args).await?,
         Command::Auth(args) => commands::auth::run(&ctx, args).await?,
+        Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
         Command::Ping => {
