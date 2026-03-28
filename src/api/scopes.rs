@@ -52,6 +52,11 @@ const TABLE: &[(&str, &str, &str)] = &[
         "alerts:write",
     ),
     ("DELETE", "v2/alert-suspensions/windows/{}", "alerts:write"),
+    ("GET", "v2/metrics/availability", "metrics:read"),
+    ("GET", "v2/metrics/response-times", "metrics:read"),
+    ("GET", "v2/metrics/voice-quality", "metrics:read"),
+    ("GET", "v2/metrics/social", "metrics:read"),
+    ("GET", "v2/metrics/social/analysis", "metrics:read"),
     ("GET", "v2/scenario-groups", "scenarios:read"),
     ("GET", "v2/scenario-groups/{}", "scenarios:read"),
     ("GET", "v2/scenarios", "scenarios:read"),
@@ -140,6 +145,10 @@ mod tests {
         assert_eq!(
             required("POST", "v2/scenarios/abc:pause"),
             Some("monitoring:write")
+        );
+        assert_eq!(
+            required("GET", "v2/metrics/social/analysis?period=last7d"),
+            Some("metrics:read")
         );
         assert_eq!(required("POST", "v2/scenarios/:pause"), None);
         assert_eq!(required("GET", "v2/unknown"), None);
