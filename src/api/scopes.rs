@@ -87,6 +87,21 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "v2/scenarios/{}/voice-quality", "metrics:read"),
     ("POST", "v2/scenarios/{}:pause", "monitoring:write"),
     ("POST", "v2/scenarios/{}:resume", "monitoring:write"),
+    ("GET", "v2/webhook-events", "webhooks:write"),
+    ("GET", "v2/webhooks", "webhooks:write"),
+    ("POST", "v2/webhooks", "webhooks:write"),
+    ("GET", "v2/webhooks/{}", "webhooks:write"),
+    ("PATCH", "v2/webhooks/{}", "webhooks:write"),
+    ("DELETE", "v2/webhooks/{}", "webhooks:write"),
+    ("POST", "v2/webhooks/{}:rotate-secret", "webhooks:write"),
+    ("POST", "v2/webhooks/{}:ping", "webhooks:write"),
+    ("GET", "v2/webhooks/{}/deliveries", "webhooks:write"),
+    ("GET", "v2/webhooks/{}/deliveries/{}", "webhooks:write"),
+    (
+        "POST",
+        "v2/webhooks/{}/deliveries/{}:redeliver",
+        "webhooks:write",
+    ),
 ];
 
 /// The scope `method path` needs, when the table knows the operation.
@@ -149,6 +164,10 @@ mod tests {
         assert_eq!(
             required("GET", "v2/metrics/social/analysis?period=last7d"),
             Some("metrics:read")
+        );
+        assert_eq!(
+            required("POST", "v2/webhooks/abc/deliveries/def:redeliver"),
+            Some("webhooks:write")
         );
         assert_eq!(required("POST", "v2/scenarios/:pause"), None);
         assert_eq!(required("GET", "v2/unknown"), None);
