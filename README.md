@@ -155,6 +155,28 @@ Series by bucket are in `--json` only. One scenario's own figures are under
 Writes carry an `Idempotency-Key`; `edit`/`delete` take `--if-match` with the
 ETag shown by `get`. JSON bodies accept a literal, `-` for stdin and `@file`.
 
+## Webhooks
+
+```sh
+2bec webhooks events                                 # the event kinds and the scope each needs
+2bec webhooks list / get <webhook>                   # state, key, last delivery, ETag
+2bec webhooks create --url https://… --event run.failed --event incident.opened
+2bec webhooks edit <webhook> --active false --if-match <etag>
+2bec webhooks edit <webhook> --event alert.sent --description "PagerDuty"   # events: whole list
+2bec webhooks delete <webhook>                       # alias rm
+2bec webhooks rotate-secret <webhook>                # alias rotate; old secret signs 24 h more
+2bec webhooks ping <webhook>                         # sends a test event now
+2bec webhooks deliveries list <webhook> --status failed --all
+2bec webhooks deliveries get <webhook> <delivery>    # with the body as sent
+2bec webhooks deliveries redeliver <webhook> <delivery>
+```
+
+`create` and `rotate-secret` print the signing secret once; it is the
+HMAC-SHA256 key of `X-Pegas-Signature`. A webhook reads with the key that
+created it, so it only carries the events that key's scopes allow. The URL
+must be https on a public host; that, the event kinds and the description
+length are checked before calling. Every command needs `webhooks:write`.
+
 ## Configuration
 
 Settings are resolved in this order: flags, then `TWOBEC_*` environment
