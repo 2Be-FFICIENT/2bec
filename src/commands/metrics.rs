@@ -6,6 +6,7 @@ use clap::{Args, Subcommand};
 
 use super::Context;
 use super::alerts::canonical;
+use super::reports::PdfArgs;
 use super::runs::ensure_guid;
 use crate::api::metrics::{
     self, AvailabilityMetrics, ResponseTimesMetrics, SocialAnalysisMetrics, SocialMetrics,
@@ -114,7 +115,40 @@ At most 30 scenarios and 31 days. A first reading of a day may take a while."
         #[command(flatten)]
         output: OutputArgs,
     },
+    /// Download a dashboard as the page prints it: availability, response-times or voice-quality
+    #[command(after_help = "\
+Examples:
+  2bec metrics pdf availability --period lastMonth -o sla.pdf
+  2bec metrics pdf response-times --scenario 7f3c... --stat p50 --lang fr
+  2bec metrics pdf voice-quality -o - | lp
+
+Same selection, period and caps as the matching read. A response-times or
+voice-quality PDF naming one scenario shows it down to its steps or calls.
+--stat (response-times only) is p85, p50, mean or max; --lang fr or en;
+--planning (repeatable) adds monitoringEvent, plannedInterruption or
+scriptVersion annotations. Needs reports:read.")]
+    Pdf {
+        /// Dashboard: availability, response-times or voice-quality
+        dashboard: String,
+        #[command(flatten)]
+        selection: Selection,
+        /// Statistic of a response-times PDF: p85, p50, mean or max
+        #[arg(long, value_name = "STAT")]
+        stat: Option<String>,
+        #[command(flatten)]
+        pdf: PdfArgs,
+        /// Destination file; `-` for stdout [default: <dashboard>.pdf]
+        #[arg(long, short = 'o', value_name = "FILE")]
+        output: Option<String>,
+    },
 }
+
+/// The dashboards with a PDF and the scenario cap of each.
+const DASHBOARDS: [(&str, usize); 3] = [
+    ("availability", 100),
+    ("response-times", 15),
+    ("voice-quality", 20),
+];
 
 /// The period flags every metrics read takes.
 #[derive(Args, Debug, Default)]
@@ -199,6 +233,39 @@ pub async fn run(ctx: &Context, args: MetricsArgs) -> Result<()> {
         } => social(ctx, &selection, interval, events, output).await,
         MetricsCommand::SocialAnalysis { selection, output } => {
             social_analysis(ctx, &selection, output).await
+        }
+        MetricsCommand::Pdf {
+            dashboard,
+            selection,
+            stat,
+            pdf,
+            output,
+        } => {
+            let names: Vec<&str> = DASHBOARDS.iter().map(|(n, _)| *n).collect();
+            let dashboard = canonical("dashboard", &dashboard, &names)?;
+            let cap = DASHBOARDS
+                .iter()
+                .find(|(n, _)| *n == dashboard)
+                .map_or(0, |(_, c)| *c);
+            let mut query = selection.query(cap)?;
+            if let Some(s) = stat {
+                if dashboard != "response-times" {
+                    bail!("--stat only applies to the response-times PDF");
+                }
+                query.push((
+                    "stat",
+                    canonical("--stat", &s, &crate::api::reports::RESPONSE_TIME_STATS)?,
+                ));
+            }
+            query.extend(pdf.query()?);
+            let target = output.unwrap_or_else(|| format!("{dashboard}.pdf"));
+            super::download_to_with(
+                &ctx.client()?,
+                &format!("v2/metrics/{dashboard}/pdf"),
+                &query,
+                &target,
+            )
+            .await
         }
     }
 }
