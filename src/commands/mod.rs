@@ -35,15 +35,25 @@ pub fn read_json_body(arg: &str) -> Result<serde_json::Value> {
 /// Stream `path` into `target`: stdout for `-`, else a temp file renamed
 /// into place on success so a failed download leaves nothing behind.
 pub async fn download_to(client: &Client, path: &str, target: &str) -> Result<()> {
+    download_to_with(client, path, &[], target).await
+}
+
+/// `download_to` with query parameters.
+pub async fn download_to_with(
+    client: &Client,
+    path: &str,
+    query: &[(&str, String)],
+    target: &str,
+) -> Result<()> {
     if target == "-" {
         let mut stdout = std::io::stdout().lock();
-        client.download(path, &mut stdout).await?;
+        client.download_with(path, query, &mut stdout).await?;
         return Ok(());
     }
     let tmp = format!("{target}.part");
     let mut file =
         std::fs::File::create(&tmp).map_err(|e| anyhow::anyhow!("cannot create {tmp}: {e}"))?;
-    let result = client.download(path, &mut file).await;
+    let result = client.download_with(path, query, &mut file).await;
     drop(file);
     match result {
         Ok((_, bytes)) => {
