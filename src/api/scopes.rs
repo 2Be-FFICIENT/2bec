@@ -104,6 +104,13 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "v2/scenarios/{}/voice-quality", "metrics:read"),
     ("POST", "v2/scenarios/{}:pause", "monitoring:write"),
     ("POST", "v2/scenarios/{}:resume", "monitoring:write"),
+    ("GET", "v2/timeline", "planning:read"),
+    ("GET", "v2/pauses", "planning:read"),
+    ("GET", "v2/events", "planning:read"),
+    ("POST", "v2/events", "monitoring:write"),
+    ("GET", "v2/events/{}", "planning:read"),
+    ("PATCH", "v2/events/{}", "monitoring:write"),
+    ("DELETE", "v2/events/{}", "monitoring:write"),
     ("GET", "v2/webhook-events", "webhooks:write"),
     ("GET", "v2/webhooks", "webhooks:write"),
     ("POST", "v2/webhooks", "webhooks:write"),
@@ -194,6 +201,7 @@ mod tests {
             required("POST", "v2/report-schedules/abc:send"),
             Some("reports:write")
         );
+        assert_eq!(required("PATCH", "v2/events/abc"), Some("monitoring:write"));
         assert_eq!(required("POST", "v2/scenarios/:pause"), None);
         assert_eq!(required("GET", "v2/unknown"), None);
         assert_eq!(required("GET", "v2/runs/abc/extra/deep"), None);
