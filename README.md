@@ -156,6 +156,26 @@ Series by bucket are in `--json` only. One scenario's own figures are under
 Writes carry an `Idempotency-Key`; `edit`/`delete` take `--if-match` with the
 ETag shown by `get`. JSON bodies accept a literal, `-` for stdin and `@file`.
 
+## Planning
+
+```sh
+2bec planning timeline                               # 7 days back to 7 ahead, every kind
+2bec planning timeline --scenario <id> --kind incident --incident-min-minutes 0
+2bec planning pauses [--all]                         # the emergency stops, with script mates
+2bec planning pause <scenario> [--yes]               # asks on a terminal; mates paused too
+2bec planning resume <scenario> --comment "…"        # the stop becomes a planned interruption
+2bec planning events list --period lastMonth --category release
+2bec planning events get <event>
+2bec planning events create --title "Release 4.2" --start 2026-10-12T10:00:00Z [--end …] [--scenario <id>…]
+2bec planning events edit <event> --end … --description "" --if-match <etag>
+2bec planning events delete <event>
+```
+
+Reads need `planning:read`; `pause`, `resume` and the event writes need
+`monitoring:write`. Timeline kinds: monitoringEvent, plannedInterruption,
+scriptVersion, incident, monitoringPause. An empty flag value on `events
+edit` clears the member.
+
 ## Reports
 
 ```sh
