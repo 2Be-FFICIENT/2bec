@@ -1041,17 +1041,7 @@ async fn get(ctx: &Context, id: &str, out: OutputArgs) -> Result<()> {
         println!("Not observed: {reason}");
     }
     if let Some(f) = &run.failure {
-        println!();
-        println!("Failure");
-        println!("  Step:        {}", step_name(f.failed_step.as_ref()));
-        println!("  Action:      {}", or_dash(f.failed_action.as_deref()));
-        println!("  Description: {}", or_dash(f.description.as_deref()));
-        if let Some(c) = f.confidence {
-            println!("  Confidence:  {c}/5");
-        }
-        if f.in_planned_interruption {
-            println!("  During a planned interruption");
-        }
+        print_failure(f);
     }
     if !run.steps.is_empty() {
         println!();
@@ -1077,6 +1067,21 @@ fn duration(ms: Option<i64>) -> String {
         Some(ms) if ms >= 1000 => format!("{:.1}s", ms as f64 / 1000.0),
         Some(ms) => format!("{ms}ms"),
         None => "-".into(),
+    }
+}
+
+/// The failure block of a run or an incident.
+pub fn print_failure(f: &runs::RunFailure) {
+    println!();
+    println!("Failure");
+    println!("  Step:        {}", step_name(f.failed_step.as_ref()));
+    println!("  Action:      {}", or_dash(f.failed_action.as_deref()));
+    println!("  Description: {}", or_dash(f.description.as_deref()));
+    if let Some(c) = f.confidence {
+        println!("  Confidence:  {c}/5");
+    }
+    if f.in_planned_interruption {
+        println!("  During a planned interruption");
     }
 }
 
