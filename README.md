@@ -156,6 +156,36 @@ Series by bucket are in `--json` only. One scenario's own figures are under
 Writes carry an `Idempotency-Key`; `edit`/`delete` take `--if-match` with the
 ETag shown by `get`. JSON bodies accept a literal, `-` for stdin and `@file`.
 
+## Incidents
+
+```sh
+2bec incidents list                                  # streaks of failed runs, last 7 days
+2bec incidents list --ongoing / --min-duration 600 / --scenario <id> --period lastMonth --all
+2bec incidents get <incident>                        # runs, first failure, alerts sent
+```
+
+An incident id is the id of its first failed run. Needs `metrics:read`.
+
+## Interruptions
+
+```sh
+2bec interruptions list --state upcoming             # ongoing, upcoming, past, rule, ended
+2bec interruptions list --occurrences --from … --to …
+2bec interruptions get <interruption>
+2bec interruptions create --scenario <id>… --start … --end … --comment Maintenance   # a one-off window
+2bec interruptions create --scenario <id>… --spec @rule.json                        # daily, weekly, monthly
+2bec interruptions edit <interruption> --spec @rule.json --if-match <etag>
+2bec interruptions end <interruption>                # a window ends now; a rule stops, keeps its past
+2bec interruptions restore <interruption>            # an ended rule, back in force
+2bec interruptions delete <interruption> [--erase-past]
+```
+
+A spec is `{"kind": "date"|"daily"|"weekly"|"monthly", "<kind>": {…}}`,
+Paris wall clock, ISO weekdays. Scenarios sharing a script are covered
+together: `create` answers one interruption per script and lists the
+calendars the platform refused. Reads need `planning:read`, writes
+`monitoring:write`.
+
 ## Planning
 
 ```sh
