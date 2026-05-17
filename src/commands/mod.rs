@@ -5,6 +5,7 @@ pub mod auth;
 pub mod incidents;
 pub mod interruptions;
 pub mod metrics;
+pub mod neutralizations;
 pub mod planning;
 pub mod reports;
 pub mod runs;
