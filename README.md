@@ -156,6 +156,22 @@ Series by bucket are in `--json` only. One scenario's own figures are under
 Writes carry an `Idempotency-Key`; `edit`/`delete` take `--if-match` with the
 ETag shown by `get`. JSON bodies accept a literal, `-` for stdin and `@file`.
 
+## Neutralizations
+
+```sh
+2bec neutralizations list --state applied            # operations, newest first, whoever wrote them
+2bec neutralizations get <operation> [--wait]
+2bec neutralizations apply --from … --to … --scenario <id> --status failed --dry-run
+2bec neutralizations apply --from … --to … --weekday 6 --weekday 7 --day-start 22:00 --day-stop 06:00 --comment "…"
+2bec neutralizations undo <operation> --comment "…"
+```
+
+`apply` dry-runs first and prints what would change; on a terminal it then
+asks and applies pinned to that dry run, so a selection that moved meanwhile
+is refused (409 `selection-changed`) instead of applied blind. `--yes`
+skips both, `--wait` polls a background operation. Everything needs
+`runs:write`.
+
 ## Incidents
 
 ```sh
