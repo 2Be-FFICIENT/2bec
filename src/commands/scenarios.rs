@@ -173,6 +173,8 @@ view is `2bec metrics voice-quality`.")]
     },
     /// Browse the groups scenarios are organized in
     Groups(GroupsArgs),
+    #[command(flatten)]
+    Settings(super::settings::SettingsCommand),
 }
 
 #[derive(Args, Debug)]
@@ -288,6 +290,7 @@ pub async fn run(ctx: &Context, args: ScenariosArgs) -> Result<()> {
             voice_quality(ctx, &id, &period, output).await
         }
         ScenariosCommand::Groups(args) => groups(ctx, args.command).await,
+        ScenariosCommand::Settings(cmd) => super::settings::run(ctx, cmd).await,
     }
 }
 
@@ -998,7 +1001,7 @@ fn platform(os: Option<&str>, browser: Option<&str>) -> String {
     }
 }
 
-fn thresholds(t: &scenarios::Thresholds) -> String {
+pub(super) fn thresholds(t: &scenarios::Thresholds) -> String {
     format!(
         "target {}, client {}, unacceptable {}",
         ms(t.target),
@@ -1008,7 +1011,7 @@ fn thresholds(t: &scenarios::Thresholds) -> String {
 }
 
 /// Milliseconds as `1.5s` or `800ms`.
-fn ms(v: f64) -> String {
+pub(super) fn ms(v: f64) -> String {
     if v >= 1000.0 {
         format!("{:.1}s", v / 1000.0)
     } else {
