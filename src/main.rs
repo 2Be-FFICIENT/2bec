@@ -64,6 +64,8 @@ enum Command {
     Alerts(commands::alerts::AlertsArgs),
     /// Log in, show or drop the credential used to call the API
     Auth(commands::auth::AuthArgs),
+    /// How the availability rate is computed and the targets it is read against
+    Availability(commands::availability::AvailabilityArgs),
     /// Streaks of consecutive failed runs
     Incidents(commands::incidents::IncidentsArgs),
     /// Planned non-observation windows and rules
@@ -141,6 +143,7 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Alerts(args) => commands::alerts::run(&ctx, args).await?,
         Command::Auth(args) => commands::auth::run(&ctx, args).await?,
+        Command::Availability(args) => commands::availability::run(&ctx, args).await?,
         Command::Incidents(args) => commands::incidents::run(&ctx, args).await?,
         Command::Interruptions(args) => commands::interruptions::run(&ctx, args).await?,
         Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
