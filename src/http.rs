@@ -152,6 +152,19 @@ impl Client {
             .map_err(|e| e.with_scope_hint("POST", path))
     }
 
+    /// `PUT` a JSON body: a whole replacement of the resource.
+    pub async fn put_json<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        write: &WriteOptions,
+    ) -> Result<Response, ApiError> {
+        let url = self.url(path);
+        self.send_write(write, || self.inner.put(&url).json(body))
+            .await
+            .map_err(|e| e.with_scope_hint("PUT", path))
+    }
+
     /// `PATCH` with a JSON merge patch body (`application/merge-patch+json`).
     pub async fn patch_merge<B: Serialize>(
         &self,
