@@ -193,33 +193,63 @@ impl SettingsChanges {
             && self.neutral_tags.is_none()
     }
 
-    /// The current rules with these changes applied, checked locally.
+    /// The flags checked and canonicalized, before anything is read.
+    fn checked(self) -> Result<Self> {
+        if self.is_empty() {
+            bail!(
+                "nothing to change: give --computing-type, --failure-counts-from, --tag-rules or a tag list"
+            );
+        }
+        if let Some(n) = self.failure_counts_from
+            && !availability::FAILURE_COUNTS_FROM.contains(&n)
+        {
+            bail!(
+                "--failure-counts-from is between {} and {}",
+                availability::FAILURE_COUNTS_FROM.start(),
+                availability::FAILURE_COUNTS_FROM.end()
+            );
+        }
+        Ok(Self {
+            computing_type: self
+                .computing_type
+                .map(|t| canonical("--computing-type", &t, &availability::COMPUTING_TYPES))
+                .transpose()?,
+            failure_tags: self
+                .failure_tags
+                .map(|ids| tag_ids("--failure-tags", ids))
+                .transpose()?,
+            success_tags: self
+                .success_tags
+                .map(|ids| tag_ids("--success-tags", ids))
+                .transpose()?,
+            neutral_tags: self
+                .neutral_tags
+                .map(|ids| tag_ids("--neutral-tags", ids))
+                .transpose()?,
+            ..self
+        })
+    }
+
+    /// The current rules with these (checked) changes applied.
     fn apply_to(self, current: &AvailabilitySettings) -> Result<AvailabilitySettingsWrite> {
         let mut w = AvailabilitySettingsWrite::from_current(current);
         if let Some(t) = self.computing_type {
-            w.computing_type = canonical("--computing-type", &t, &availability::COMPUTING_TYPES)?;
+            w.computing_type = t;
         }
         if let Some(n) = self.failure_counts_from {
-            if !availability::FAILURE_COUNTS_FROM.contains(&n) {
-                bail!(
-                    "--failure-counts-from is between {} and {}",
-                    availability::FAILURE_COUNTS_FROM.start(),
-                    availability::FAILURE_COUNTS_FROM.end()
-                );
-            }
             w.failure_counts_from = n;
         }
         if let Some(e) = self.tag_rules {
             w.tag_rules_enabled = e;
         }
         if let Some(ids) = self.failure_tags {
-            w.tag_rules.failure = tag_ids("--failure-tags", ids)?;
+            w.tag_rules.failure = ids;
         }
         if let Some(ids) = self.success_tags {
-            w.tag_rules.success = tag_ids("--success-tags", ids)?;
+            w.tag_rules.success = ids;
         }
         if let Some(ids) = self.neutral_tags {
-            w.tag_rules.neutral = tag_ids("--neutral-tags", ids)?;
+            w.tag_rules.neutral = ids;
         }
         let all: Vec<&String> = w
             .tag_rules
@@ -259,11 +289,7 @@ async fn set_settings(
     if_match: Option<String>,
     out: OutputArgs,
 ) -> Result<()> {
-    if changes.is_empty() {
-        bail!(
-            "nothing to change: give --computing-type, --failure-counts-from, --tag-rules or a tag list"
-        );
-    }
+    let changes = changes.checked()?;
     let client = ctx.client()?;
     let resp = client.get("v2/availability-settings").await?;
     let current: AvailabilitySettings = resp.json()?;
@@ -540,7 +566,7 @@ mod tests {
         c.computing_type = Some("IGNORENEUTRALIZED".into());
         c.failure_tags = Some(vec![String::new()]);
         c.neutral_tags = Some(vec![H.into()]);
-        let w = c.apply_to(&current()).unwrap();
+        let w = c.checked().unwrap().apply_to(&current()).unwrap();
         assert_eq!(w.computing_type, "ignoreNeutralized");
         assert_eq!(w.failure_counts_from, 1);
         assert!(w.tag_rules.failure.is_empty());
@@ -551,8 +577,8 @@ mod tests {
         assert!(c.apply_to(&current()).is_err(), "a tag in two rules");
         let mut c = changes();
         c.failure_counts_from = Some(11);
-        assert!(c.apply_to(&current()).is_err());
-        assert!(changes().is_empty());
+        assert!(c.checked().is_err());
+        assert!(changes().checked().is_err(), "nothing to change");
     }
 
     #[test]
