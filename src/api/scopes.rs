@@ -108,6 +108,10 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "v2/neutralizations", "runs:write"),
     ("GET", "v2/neutralizations/{}", "runs:write"),
     ("DELETE", "v2/neutralizations/{}", "runs:write"),
+    ("GET", "v2/availability-settings", "metrics:read"),
+    ("PUT", "v2/availability-settings", "indicators:write"),
+    ("GET", "v2/availability-targets", "metrics:read"),
+    ("PUT", "v2/availability-targets", "indicators:write"),
     ("GET", "v2/incidents", "metrics:read"),
     ("GET", "v2/incidents/{}", "metrics:read"),
     ("GET", "v2/interruptions", "planning:read"),
@@ -220,6 +224,18 @@ mod tests {
             Some("monitoring:write")
         );
         assert_eq!(required("GET", "v2/incidents/abc"), Some("metrics:read"));
+        assert_eq!(
+            required("PUT", "v2/availability-settings"),
+            Some("indicators:write")
+        );
+        assert_eq!(
+            required("POST", "v2/scenarios/abc/thresholds:apply"),
+            Some("indicators:write")
+        );
+        assert_eq!(
+            required("PUT", "v2/scenarios/abc/run-variables"),
+            Some("scenarios:write")
+        );
         assert_eq!(
             required("POST", "v2/neutralizations?dryRun=true"),
             Some("runs:write")
