@@ -164,6 +164,23 @@ percentage above 50 and below 100 with 3 decimals at most; `default` makes
 the space follow the platform's target, or a scenario the space's. Reads
 need `metrics:read`, writes `indicators:write`.
 
+## Variables
+
+```sh
+2bec variables list --plain -q smtp                  # the space's runtime variables, by name
+2bec variables get <id>                              # value history, what reads it, ETag
+2bec variables set SMTP_HOST smtp.example.com --comment "Outgoing mail"
+2bec variables set API_TOKEN - --secret < token.txt  # value from stdin; @file works too
+2bec variables set SMTP_HOST --comment ""            # clears the comment, keeps the value
+2bec variables delete OLD_TOKEN --force              # alias rm; --force when a hook reads it
+```
+
+Runtime variables are the named values the alert hooks receive as
+environment variables. A secret's value is stored ciphered and never
+returned; `--secret` is fixed at the creation (`variable-kind-fixed`, 409).
+Each new value is one more version of the history. Reads need
+`scenarios:read`, writes `scenarios:write`.
+
 ## Metrics
 
 ```sh
