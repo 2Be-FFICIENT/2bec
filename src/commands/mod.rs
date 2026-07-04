@@ -3,6 +3,7 @@
 pub mod alerts;
 pub mod auth;
 pub mod availability;
+pub mod badges;
 pub mod incidents;
 pub mod interruptions;
 pub mod metrics;
