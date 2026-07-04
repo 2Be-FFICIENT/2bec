@@ -5,6 +5,7 @@ pub mod alerts;
 pub mod availability;
 pub mod error;
 pub mod incidents;
+pub mod indicators;
 pub mod interruptions;
 pub mod me;
 pub mod metrics;
