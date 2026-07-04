@@ -181,6 +181,33 @@ returned; `--secret` is fixed at the creation (`variable-kind-fixed`, 409).
 Each new value is one more version of the history. Reads need
 `scenarios:read`, writes `scenarios:write`.
 
+## Tags and badges
+
+```sh
+2bec tags list --kind business -q release         # the tags a run may carry, by name
+2bec tags get <id>                                # kind, comment, ETag
+2bec tags create "release 42" --comment "Release runs"
+2bec tags edit <id> --name "release 43" --comment ""   # a merge patch; "" clears
+2bec tags delete <id> --force                     # alias rm; --force detaches it from the runs
+
+2bec badges list --enabled                        # resolution order: priority, then name
+2bec badges get <id>                              # rule, validity, tags, ETag
+2bec badges create --name Prod --symbol P --tag <tag-id>
+2bec badges create --name Release --symbol rocket --icon --color 3 \
+  --tag <id> --tag <id> --all-tags --status any --valid-from 2026-12-20T00:00:00Z
+2bec badges edit <id> --enabled false --clear-valid-until --if-match '"v3"'
+2bec badges delete <id>                           # the runs keep their tags
+```
+
+Tags are `business` (the space's own, the only ones written), `robot`
+(written by the robots) or `global` (the platform's); reserved prefixes such
+as `obs::` are refused locally. A badge is a symbol in a palette color drawn
+on the runs carrying any or all of its tags, on failed, successful or every
+run, within an optional validity window; the highest priority wins. Defaults
+on creation: enabled, priority 10, text symbol, any of the tags, failed runs.
+Reads need `scenarios:read`, writes `indicators:write`; `tag-in-use` (409)
+without `--force`, `conflict` (409) on a duplicate name.
+
 ## Metrics
 
 ```sh
