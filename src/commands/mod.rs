@@ -9,11 +9,14 @@ pub mod interruptions;
 pub mod metrics;
 pub mod neutralizations;
 pub mod planning;
+pub mod profiles;
 pub mod reports;
 pub mod runs;
 pub mod scenarios;
+pub mod security;
 pub mod settings;
 pub mod tags;
+pub mod users;
 pub mod variables;
 pub mod webhooks;
 
