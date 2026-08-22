@@ -1,30 +1,46 @@
-//! `2bec security-settings`: the sign-in policy of the space. Read only.
+//! `2bec security`: the sign-in policy of the space. Read only.
 
 use anyhow::Result;
-use clap::Args;
+use clap::{Args, Subcommand};
 
 use super::Context;
 use crate::api::people::SecuritySettings;
 use crate::output::OutputArgs;
 
 #[derive(Args, Debug)]
-#[command(after_help = "\
-Needs users:read. The password rules and strong authentication of the
-space, with how many users they apply to, how many are exempted from strong
-authentication, and how many an SMS or e-mail code cannot reach.
-
-Examples:
-  2bec security-settings
-  2bec security-settings --jq .twoFactor.enabled")]
-pub struct SecuritySettingsArgs {
-    #[command(flatten)]
-    output: OutputArgs,
+#[command(after_help = "Needs users:read. The writes stay on the web app's security page.")]
+pub struct SecurityArgs {
+    #[command(subcommand)]
+    command: SecurityCommand,
 }
 
-pub async fn run(ctx: &Context, args: SecuritySettingsArgs) -> Result<()> {
+#[derive(Subcommand, Debug)]
+enum SecurityCommand {
+    /// Show the password rules and strong authentication, with the users they concern
+    #[command(after_help = "\
+Examples:
+  2bec security settings
+  2bec security settings --jq .twoFactor.enabled
+
+The password rules and strong authentication of the space, with how many
+users they apply to, how many are exempted from strong authentication, and
+how many an SMS or e-mail code cannot reach.")]
+    Settings {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+}
+
+pub async fn run(ctx: &Context, args: SecurityArgs) -> Result<()> {
+    match args.command {
+        SecurityCommand::Settings { output } => settings(ctx, output).await,
+    }
+}
+
+async fn settings(ctx: &Context, out: OutputArgs) -> Result<()> {
     let s: SecuritySettings = ctx.client()?.get("v2/security-settings").await?.json()?;
-    if args.output.wants_json() {
-        return args.output.print_json(&s);
+    if out.wants_json() {
+        return out.print_json(&s);
     }
     let p = &s.password;
     println!("Password rules:");

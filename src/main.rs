@@ -93,8 +93,7 @@ enum Command {
     /// Browse the catalog of scenarios and their groups
     Scenarios(commands::scenarios::ScenariosArgs),
     /// The sign-in policy: password rules and strong authentication
-    #[command(name = "security-settings")]
-    SecuritySettings(commands::security::SecuritySettingsArgs),
+    Security(commands::security::SecurityArgs),
     /// Tags a run may carry: the space's own, the robots' and the platform's
     Tags(commands::tags::TagsArgs),
     /// Support requests between the space and the platform's team
@@ -175,7 +174,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Reports(args) => commands::reports::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
-        Command::SecuritySettings(args) => commands::security::run(&ctx, args).await?,
+        Command::Security(args) => commands::security::run(&ctx, args).await?,
         Command::Tags(args) => commands::tags::run(&ctx, args).await?,
         Command::Tickets(args) => commands::tickets::run(&ctx, args).await?,
         Command::Users(args) => commands::users::run(&ctx, args).await?,

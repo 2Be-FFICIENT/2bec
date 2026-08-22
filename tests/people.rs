@@ -1,4 +1,4 @@
-//! End-to-end tests of `2bec users`, `2bec profiles` and `2bec security-settings`
+//! End-to-end tests of `2bec users`, `2bec profiles` and `2bec security`
 //! against a mock API. No network.
 
 use assert_cmd::Command;
@@ -242,7 +242,7 @@ async fn security_settings_prints_the_policy_and_names_the_scope() {
     let dir = TempDir::new().unwrap();
 
     cmd(&server, &dir)
-        .args(["security-settings"])
+        .args(["security", "settings"])
         .assert()
         .success()
         .stdout(predicate::str::contains("  Minimum length:        12\n"))
@@ -262,7 +262,7 @@ async fn security_settings_prints_the_policy_and_names_the_scope() {
         .mount(&server)
         .await;
     cmd(&server, &dir)
-        .args(["security-settings", "--json"])
+        .args(["security", "settings", "--json"])
         .assert()
         .code(3)
         .stderr(predicate::str::contains(

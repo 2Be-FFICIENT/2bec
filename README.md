@@ -215,7 +215,7 @@ without `--force`, `conflict` (409) on a duplicate name.
 2bec users get <id>                                # roles, profile, sign-in method, 2FA, lock
 2bec profiles list                                 # groups (closed ones in brackets), scenarios, holders
 2bec profiles get <id>                             # the groups and the users holding it
-2bec security-settings                             # password rules, strong authentication, counts
+2bec security settings                             # password rules, strong authentication, counts
 ```
 
 Read only, all behind `users:read`. A user's id is the identity subject the
