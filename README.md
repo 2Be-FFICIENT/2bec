@@ -443,3 +443,5 @@ API's trace id to quote in support requests.
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Third-party crates linked into the binary, their licenses and copyright notices are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
