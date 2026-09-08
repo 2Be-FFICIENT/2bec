@@ -463,14 +463,15 @@ async fn jq_filters_the_json_output() {
     let dir = TempDir::new().unwrap();
 
     cmd(&server, &dir)
-        .env("PATH", std::env::var_os("PATH").unwrap())
         .args(["scenarios", "list", "--jq", ".[].name"])
         .assert()
         .success()
-        .stdout(predicate::eq("\"Login\"\n\"Brand on X\"\n"));
+        // jq ends lines with CRLF on Windows.
+        .stdout(predicate::function(|s: &str| {
+            s.replace("\r\n", "\n") == "\"Login\"\n\"Brand on X\"\n"
+        }));
 
     cmd(&server, &dir)
-        .env("PATH", std::env::var_os("PATH").unwrap())
         .args(["scenarios", "list", "--jq", ".[] | .nope("])
         .assert()
         .code(1)
