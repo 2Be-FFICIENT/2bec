@@ -1,6 +1,9 @@
 //! End-to-end tests of `2bec neutralizations` against a mock API. No network.
 
+mod common;
+
 use assert_cmd::Command;
+use common::IsolatedEnv;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use wiremock::matchers::{
@@ -56,7 +59,7 @@ fn problem(code: &str, status: u16) -> ResponseTemplate {
 
 fn cmd(server: &MockServer, dir: &TempDir) -> Command {
     let mut c = Command::cargo_bin("2bec").unwrap();
-    c.env_clear()
+    c.isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .env("TWOBEC_TOKEN", KEY);

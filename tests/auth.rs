@@ -1,6 +1,9 @@
 //! End-to-end tests of `2bec auth` against a mock API. No network.
 
+mod common;
+
 use assert_cmd::Command;
+use common::IsolatedEnv;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use wiremock::matchers::{header, method, path};
@@ -43,7 +46,7 @@ fn me_ok() -> ResponseTemplate {
 /// A command pointed at `server` with an isolated config dir.
 fn cmd(server: &MockServer, dir: &TempDir) -> Command {
     let mut c = Command::cargo_bin("2bec").unwrap();
-    c.env_clear()
+    c.isolate_env()
         .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri());
@@ -296,7 +299,7 @@ async fn unreachable_api_exits_with_network_code() {
     // Port 1 is reserved and never listening: the connection is refused.
     Command::cargo_bin("2bec")
         .unwrap()
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", "http://127.0.0.1:1")
         .env("TWOBEC_TOKEN", KEY)
