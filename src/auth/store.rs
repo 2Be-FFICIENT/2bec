@@ -36,6 +36,8 @@ pub trait CredentialStore {
     fn set(&self, profile: &str, credential: &StoredCredential) -> Result<()>;
     /// Remove the credential for `profile`; returns whether one existed.
     fn remove(&self, profile: &str) -> Result<bool>;
+    /// Names of the profiles that have a credential, sorted.
+    fn profiles(&self) -> Result<Vec<String>>;
     /// Human-readable location, shown by `auth status`.
     fn describe(&self) -> String;
 }
@@ -163,6 +165,10 @@ impl CredentialStore for FileStore {
         Ok(existed)
     }
 
+    fn profiles(&self) -> Result<Vec<String>> {
+        Ok(self.load()?.profiles.into_keys().collect())
+    }
+
     fn describe(&self) -> String {
         self.path.display().to_string()
     }
@@ -220,8 +226,10 @@ mod tests {
         store.set("dev", &key("2bef_dev_xyz")).unwrap();
         assert_eq!(store.get("prod").unwrap(), Some(key("2bef_live_abc")));
         assert_eq!(store.get("dev").unwrap(), Some(key("2bef_dev_xyz")));
+        assert_eq!(store.profiles().unwrap(), ["dev", "prod"]);
         assert!(store.remove("prod").unwrap());
         assert_eq!(store.get("prod").unwrap(), None);
+        assert_eq!(store.profiles().unwrap(), ["dev"]);
         assert_eq!(store.get("dev").unwrap(), Some(key("2bef_dev_xyz")));
     }
 
