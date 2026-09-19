@@ -86,6 +86,16 @@ impl Config {
         };
         toml::from_str(&text).with_context(|| format!("invalid config file {}", path.display()))
     }
+
+    /// Write the config file, creating its directory. Comments are lost.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("cannot create {}", dir.display()))?;
+        }
+        let text = toml::to_string_pretty(self).context("cannot serialize the config")?;
+        std::fs::write(path, text).with_context(|| format!("cannot write {}", path.display()))
+    }
 }
 
 /// Values given on the command line or through the environment; `None`
@@ -275,6 +285,15 @@ mod tests {
     fn unknown_keys_are_rejected() {
         let err = toml::from_str::<Config>("[profiles.x]\napi_ur = \"a\"\n").unwrap_err();
         assert!(err.to_string().contains("api_ur"));
+    }
+
+    #[test]
+    fn save_then_load_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join(CONFIG_FILE);
+        let c = config_with(Some("dev"), "dev", "http://localhost:5152");
+        c.save(&path).unwrap();
+        assert_eq!(Config::load(&path).unwrap(), c);
     }
 
     #[test]
