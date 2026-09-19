@@ -6,6 +6,7 @@ pub mod auth;
 pub mod availability;
 pub mod badges;
 pub mod comments;
+pub mod docs;
 pub mod incidents;
 pub mod interruptions;
 pub mod metrics;
