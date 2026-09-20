@@ -477,3 +477,42 @@ async fn jq_filters_the_json_output() {
         .code(1)
         .stderr(predicate::str::contains("jq exited with"));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deprecated_route_warns_once_per_run() {
+    let server = MockServer::start().await;
+    let deprecated = |body: serde_json::Value| {
+        ResponseTemplate::new(200)
+            .insert_header("Deprecation", "@1735689600")
+            .insert_header("Sunset", "Wed, 01 Jul 2026 00:00:00 GMT")
+            .insert_header("Link", "</docs/changelog>; rel=\"deprecation\"")
+            .set_body_json(body)
+    };
+    Mock::given(method("GET"))
+        .and(path("/v2/scenarios"))
+        .and(query_param_is_missing("cursor"))
+        .respond_with(deprecated(serde_json::json!({
+            "items": [item(SCENARIO, "Login", "transaction")], "next": "c2", "total": 2
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/scenarios"))
+        .and(query_param("cursor", "c2"))
+        .respond_with(deprecated(serde_json::json!({
+            "items": [item(SOCIAL, "Brand on X", "socialMonitoring")], "next": null, "total": 2
+        })))
+        .mount(&server)
+        .await;
+    let dir = TempDir::new().unwrap();
+
+    let out = cmd(&server, &dir)
+        .args(["scenarios", "list", "--all"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Brand on X"));
+    let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+    let expected = "warning: /v2/scenarios is deprecated since 2025-01-01 and will be removed on \
+                    Wed, 01 Jul 2026 00:00:00 GMT; see /docs/changelog\n";
+    assert_eq!(stderr, expected);
+}
