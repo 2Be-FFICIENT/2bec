@@ -1,5 +1,7 @@
 //! Authentication: credential storage and token resolution.
 
+#[cfg(feature = "keyring")]
+pub mod keyring;
 pub mod oauth;
 pub mod store;
 pub mod token;

@@ -5,7 +5,9 @@ use clap::{Args, Subcommand, ValueEnum};
 use std::path::Path;
 
 use crate::auth::store::CredentialStore;
-use crate::config::{CONFIG_FILE, Config, DEFAULT_PROFILE, Profile, Settings, Source};
+use crate::config::{
+    CONFIG_FILE, Config, CredentialStoreKind, DEFAULT_PROFILE, Profile, Settings, Source,
+};
 use crate::http::DEFAULT_API_URL;
 use crate::output::{OutputArgs, Table};
 
@@ -106,6 +108,9 @@ pub enum Key {
     /// Profile used without --profile (not per profile)
     #[value(name = "default_profile")]
     DefaultProfile,
+    /// Where the credentials' secrets are kept: file or keyring (not per profile)
+    #[value(name = "credential_store")]
+    CredentialStore,
 }
 
 impl Key {
@@ -116,12 +121,14 @@ impl Key {
             Self::OauthClientId => "oauth_client_id",
             Self::ApiResource => "api_resource",
             Self::DefaultProfile => "default_profile",
+            Self::CredentialStore => "credential_store",
         }
     }
 
     /// Every key, in the order `config list` prints them.
-    const ALL: [Key; 5] = [
+    const ALL: [Key; 6] = [
         Key::DefaultProfile,
+        Key::CredentialStore,
         Key::ApiUrl,
         Key::Issuer,
         Key::OauthClientId,
@@ -137,6 +144,7 @@ impl Key {
             Self::OauthClientId => p.and_then(|p| p.oauth_client_id.clone()),
             Self::ApiResource => p.and_then(|p| p.api_resource.clone()),
             Self::DefaultProfile => config.default_profile.clone(),
+            Self::CredentialStore => config.credential_store.map(|k| k.name().to_string()),
         }
     }
 
@@ -148,6 +156,10 @@ impl Key {
             Self::Issuer => (settings.issuer.clone(), source_of(from_file)),
             Self::OauthClientId => (Some(settings.oauth_client_id.clone()), source_of(from_file)),
             Self::ApiResource => (Some(settings.api_resource.clone()), source_of(from_file)),
+            Self::CredentialStore => (
+                Some(settings.credential_store.name().to_string()),
+                source_of(from_file),
+            ),
             Self::DefaultProfile => (
                 Some(settings.profile.clone()),
                 if from_file.as_deref() == Some(&settings.profile) {
@@ -166,13 +178,18 @@ impl Key {
             config.default_profile = value;
             return;
         }
+        if self == Self::CredentialStore {
+            // Checked by `check` already; an unknown name is not written.
+            config.credential_store = value.and_then(|v| v.parse().ok());
+            return;
+        }
         let p = config.profiles.entry(profile.to_string()).or_default();
         let slot = match self {
             Self::ApiUrl => &mut p.api_url,
             Self::Issuer => &mut p.issuer,
             Self::OauthClientId => &mut p.oauth_client_id,
             Self::ApiResource => &mut p.api_resource,
-            Self::DefaultProfile => unreachable!("handled above"),
+            Self::DefaultProfile | Self::CredentialStore => unreachable!("handled above"),
         };
         *slot = value;
         if *p == Profile::default() {
@@ -193,6 +210,15 @@ impl Key {
             Self::ApiUrl | Self::Issuer | Self::ApiResource => {
                 if !(value.starts_with("http://") || value.starts_with("https://")) {
                     bail!("{} must be an http(s) URL", self.name());
+                }
+            }
+            Self::CredentialStore => {
+                let kind: CredentialStoreKind = value.parse()?;
+                if kind == CredentialStoreKind::Keyring && !cfg!(feature = "keyring") {
+                    eprintln!(
+                        "warning: this build of 2bec has no keyring support; the credential \
+                         store will not open until you rebuild with `--features keyring`"
+                    );
                 }
             }
             Self::OauthClientId | Self::DefaultProfile => {}
@@ -247,6 +273,8 @@ pub fn run(
             edited.save(&path)?;
             if key == Key::DefaultProfile {
                 println!("Default profile is now `{value}`");
+            } else if key == Key::CredentialStore {
+                println!("Credential store is now `{value}`; existing logins stay readable");
             } else {
                 println!(
                     "Set {} = {value} for profile `{}`",
@@ -264,7 +292,11 @@ pub fn run(
             }
             key.write(&mut edited, &settings.profile, None);
             edited.save(&path)?;
-            println!("Removed {} from profile `{}`", key.name(), settings.profile);
+            if matches!(key, Key::DefaultProfile | Key::CredentialStore) {
+                println!("Removed {}", key.name());
+            } else {
+                println!("Removed {} from profile `{}`", key.name(), settings.profile);
+            }
             Ok(())
         }
         ConfigCommand::Path => {
@@ -283,7 +315,7 @@ pub fn run(
                 edited.default_profile = Some(name.clone());
                 edited.save(&path)?;
                 println!("Default profile is now `{name}`");
-                if store.get(&name)?.is_none() {
+                if !store.profiles()?.contains(&name) {
                     eprintln!("note: no credential stored for `{name}`; run `2bec auth login`");
                 }
                 Ok(())
@@ -337,8 +369,9 @@ fn profiles(
     output: &OutputArgs,
 ) -> Result<()> {
     // A profile exists when the config file or the credential store knows it.
+    let logged_in = store.profiles()?;
     let mut names: Vec<String> = config.profiles.keys().cloned().collect();
-    names.extend(store.profiles()?);
+    names.extend(logged_in.iter().cloned());
     names.extend(config.default_profile.clone());
     names.push(settings.profile.clone());
     names.sort();
@@ -353,7 +386,7 @@ fn profiles(
         let api_url = p
             .and_then(|p| p.api_url.clone())
             .unwrap_or_else(|| DEFAULT_API_URL.to_string());
-        let credential = store.get(name)?.is_some();
+        let credential = logged_in.contains(name);
         rows.push(serde_json::json!({
             "name": name,
             "apiUrl": api_url.trim_end_matches('/'),

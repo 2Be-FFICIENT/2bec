@@ -8,6 +8,7 @@
 //!
 //! ```toml
 //! default_profile = "prod"
+//! credential_store = "keyring"   # or "file" (the default)
 //!
 //! [profiles.prod]
 //! api_url = "https://api.2befficient.com"
@@ -50,9 +51,44 @@ pub struct Config {
     /// Profile used when `--profile` / `TWOBEC_PROFILE` is not given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_profile: Option<String>,
+    /// Where the secrets of the credentials are kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_store: Option<CredentialStoreKind>,
     /// Named profiles, typically one per environment.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub profiles: BTreeMap<String, Profile>,
+}
+
+/// Backend holding the secret part of the credentials.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CredentialStoreKind {
+    /// `hosts.toml` with owner-only permissions.
+    #[default]
+    File,
+    /// The operating system keyring (needs the `keyring` cargo feature).
+    Keyring,
+}
+
+impl CredentialStoreKind {
+    /// The name used in the config file.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Keyring => "keyring",
+        }
+    }
+}
+
+impl std::str::FromStr for CredentialStoreKind {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self> {
+        match s.trim() {
+            "file" => Ok(Self::File),
+            "keyring" => Ok(Self::Keyring),
+            other => anyhow::bail!("unknown credential store `{other}`; use `file` or `keyring`"),
+        }
+    }
 }
 
 /// Settings of one profile. Every field is optional and falls back to the
@@ -131,6 +167,8 @@ pub struct Settings {
     pub oauth_client_id: String,
     /// `resource` parameter sent to the identity server.
     pub api_resource: String,
+    /// Where the credentials' secrets are kept.
+    pub credential_store: CredentialStoreKind,
 }
 
 impl Settings {
@@ -175,6 +213,7 @@ impl Settings {
             api_resource: from_file
                 .and_then(|p| p.api_resource.clone())
                 .unwrap_or_else(|| DEFAULT_API_URL.to_string()),
+            credential_store: config.credential_store.unwrap_or_default(),
         }
     }
 }
@@ -194,6 +233,7 @@ mod tests {
         );
         Config {
             default_profile: default.map(str::to_string),
+            credential_store: None,
             profiles,
         }
     }
@@ -271,6 +311,20 @@ mod tests {
         let s = Settings::resolve(&Overrides::default(), &c);
         assert_eq!(s.issuer.as_deref(), Some("https://id.local"));
         assert_eq!(s.oauth_client_id, "2bec-dev");
+    }
+
+    #[test]
+    fn credential_store_parses_and_defaults_to_file() {
+        let s = Settings::resolve(&Overrides::default(), &Config::default());
+        assert_eq!(s.credential_store, CredentialStoreKind::File);
+        let c: Config = toml::from_str("credential_store = \"keyring\"\n").unwrap();
+        assert_eq!(c.credential_store, Some(CredentialStoreKind::Keyring));
+        assert!(toml::from_str::<Config>("credential_store = \"vault\"\n").is_err());
+        assert_eq!(
+            "keyring".parse::<CredentialStoreKind>().unwrap(),
+            CredentialStoreKind::Keyring
+        );
+        assert!("vault".parse::<CredentialStoreKind>().is_err());
     }
 
     #[test]
