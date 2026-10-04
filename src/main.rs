@@ -114,6 +114,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    reset_sigpipe();
     let cli = Cli::parse();
     let verbose = cli.verbose;
     match run(cli).await {
@@ -122,6 +123,17 @@ async fn main() -> ExitCode {
             report_error(&err, verbose);
             api::error::exit_code_for(&err)
         }
+    }
+}
+
+/// Let a closed pipe (`2bec runs list | head`) end the process quietly, as
+/// the shell expects, instead of panicking on the next write to stdout.
+fn reset_sigpipe() {
+    #[cfg(unix)]
+    // SAFETY: restoring the default disposition of SIGPIPE before any other
+    // thread exists; `signal` with SIG_DFL has no preconditions.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }
 
