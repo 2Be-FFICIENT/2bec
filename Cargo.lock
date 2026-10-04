@@ -2582,6 +2582,7 @@ dependencies = [
  "dirs",
  "getrandom 0.4.3",
  "keyring",
+ "libc",
  "open",
  "predicates",
  "reqwest",
