@@ -17,13 +17,24 @@ pub struct OutputArgs {
 
 impl OutputArgs {
     /// Print `value` as JSON when `--json` was given, else run `table`.
-    pub fn print<T: Serialize>(&self, value: &T, table: impl FnOnce() -> Table) -> Result<()> {
+    /// An empty table prints `empty_note` on stderr instead of a lone header
+    /// when stdout is a terminal.
+    pub fn print<T: Serialize>(
+        &self,
+        value: &T,
+        empty_note: &str,
+        table: impl FnOnce() -> Table,
+    ) -> Result<()> {
         if self.json {
-            print_json(value)
-        } else {
-            table().print();
-            Ok(())
+            return print_json(value);
         }
+        let t = table();
+        if t.is_empty() && stdout_is_tty() {
+            eprintln!("{empty_note}");
+        } else {
+            t.print();
+        }
+        Ok(())
     }
 }
 

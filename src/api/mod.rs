@@ -2,7 +2,9 @@
 
 pub mod error;
 pub mod me;
-#[expect(dead_code, reason = "first user is `runs list`")]
 pub mod page;
-#[expect(dead_code, reason = "used by the `runs` commands")]
+#[expect(
+    dead_code,
+    reason = "diagnosis, artifact, tag and request types land with their commands"
+)]
 pub mod runs;
