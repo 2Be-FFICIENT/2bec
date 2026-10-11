@@ -198,7 +198,7 @@ pub struct Selection {
 }
 
 impl Selection {
-    fn query(&self, max_scenarios: usize) -> Result<Vec<(&'static str, String)>> {
+    pub fn query(&self, max_scenarios: usize) -> Result<Vec<(&'static str, String)>> {
         if self.scenarios.len() > max_scenarios {
             bail!("at most {max_scenarios} --scenario values");
         }
