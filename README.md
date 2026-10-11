@@ -28,11 +28,29 @@ Run `./2bec.sh --help` for all commands and options.
 
 ## Configuration
 
+Settings are resolved in this order: flags, then `TWOBEC_*` environment
+variables, then the config file, then built-in defaults.
+
 | Option      | Environment variable | Default                       |
 |-------------|----------------------|-------------------------------|
+| `--profile` | `TWOBEC_PROFILE`     | `default_profile` in config, else `default` |
 | `--api-url` | `TWOBEC_API_URL`     | `https://api.2befficient.com` |
 | `--token`   | `TWOBEC_TOKEN`       | none                          |
 | `--timeout` |                      | `30` seconds                  |
+
+The config file is `~/.config/2bec/config.toml` (`$XDG_CONFIG_HOME` is
+honored; `TWOBEC_CONFIG_DIR` overrides the directory). It holds named
+profiles, typically one per environment:
+
+```toml
+default_profile = "prod"
+
+[profiles.prod]
+api_url = "https://api.2befficient.com"
+
+[profiles.dev]
+api_url = "http://localhost:5152"
+```
 
 ## License
 

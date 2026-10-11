@@ -1,3 +1,4 @@
+mod config;
 mod http;
 
 use anyhow::Result;
@@ -7,9 +8,13 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(name = "2bec", version, about, long_about = None)]
 struct Cli {
-    /// Base URL of the API (can also be set via TWOBEC_API_URL)
-    #[arg(long, env = "TWOBEC_API_URL", default_value = http::DEFAULT_API_URL)]
-    api_url: String,
+    /// Configuration profile to use (see `config.toml`)
+    #[arg(long, env = "TWOBEC_PROFILE", global = true)]
+    profile: Option<String>,
+
+    /// Base URL of the API [default: https://api.2befficient.com]
+    #[arg(long, env = "TWOBEC_API_URL", global = true)]
+    api_url: Option<String>,
 
     /// Request timeout in seconds
     #[arg(long, default_value_t = 30)]
@@ -32,7 +37,13 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let client = http::Client::new(&cli.api_url, cli.timeout, cli.token.as_deref())?;
+    let config = config::Config::load(&config::Config::path()?)?;
+    let overrides = config::Overrides {
+        profile: cli.profile.clone(),
+        api_url: cli.api_url.clone(),
+    };
+    let settings = config::Settings::resolve(&overrides, &config);
+    let client = http::Client::new(&settings.api_url, cli.timeout, cli.token.as_deref())?;
 
     match cli.command {
         Command::Ping => {
