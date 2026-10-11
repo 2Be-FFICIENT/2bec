@@ -3,6 +3,8 @@
 //! callback. No network.
 
 use assert_cmd::cargo::cargo_bin;
+use assert_cmd::prelude::*;
+use predicates::prelude::*;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Command, Stdio};
@@ -38,7 +40,8 @@ async fn mount_discovery(server: &MockServer) {
             "issuer": format!("{base}/id"),
             "authorization_endpoint": format!("{base}/id/connect/authorize"),
             "token_endpoint": format!("{base}/id/connect/token"),
-            "revocation_endpoint": format!("{base}/id/connect/revocation")
+            "revocation_endpoint": format!("{base}/id/connect/revocation"),
+            "device_authorization_endpoint": format!("{base}/id/connect/deviceauthorization")
         })))
         .mount(server)
         .await;
@@ -329,4 +332,152 @@ async fn status_shows_the_person_login() {
             "Caller:       Ada <ada@example.com>",
         ))
         .stdout(predicates::str::contains("Client:       2bec"));
+}
+
+fn device_authorization(interval: u64) -> serde_json::Value {
+    serde_json::json!({
+        "device_code": "DEV1", "user_code": "123-456",
+        "verification_uri": "https://id.example/device",
+        "verification_uri_complete": "https://id.example/device?userCode=123456",
+        "expires_in": 300, "interval": interval
+    })
+}
+
+fn oauth_error(code: &str) -> ResponseTemplate {
+    ResponseTemplate::new(400).set_body_json(serde_json::json!({"error": code}))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn device_login_polls_until_approved_and_stores_the_tokens() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/id/connect/deviceauthorization"))
+        .and(body_string_contains("client_id=2bec"))
+        .and(body_string_contains(
+            "scope=pegas-api%3Aread+pegas-api%3Awrite+offline_access",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(device_authorization(1)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    // First poll: pending. Second: slow down. Third: the tokens.
+    let poll = || {
+        Mock::given(method("POST"))
+            .and(path("/id/connect/token"))
+            .and(body_string_contains(
+                "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code",
+            ))
+            .and(body_string_contains("device_code=DEV1"))
+            .and(body_string_contains("client_id=2bec"))
+            .and(body_string_contains(
+                "resource=https%3A%2F%2Fapi.2befficient.com",
+            ))
+    };
+    poll()
+        .respond_with(oauth_error("authorization_pending"))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+    poll()
+        .respond_with(oauth_error("slow_down"))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+    poll()
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "ACCESS9", "refresh_token": "REFRESH9",
+            "expires_in": 3600, "token_type": "Bearer"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/me"))
+        .and(header("authorization", "Bearer ACCESS9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(me_body("Ada")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let dir = TempDir::new().unwrap();
+
+    let started = std::time::Instant::now();
+    Command::new(cargo_bin!("2bec"))
+        .env_clear()
+        .env("TWOBEC_CONFIG_DIR", dir.path())
+        .env("TWOBEC_API_URL", server.uri())
+        .args(["auth", "login", "--device"])
+        .stdin(Stdio::null())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("https://id.example/device\n"))
+        .stderr(predicate::str::contains("Code: 123-456\n"))
+        .stderr(predicate::str::contains(
+            "(or open https://id.example/device?userCode=123456)",
+        ))
+        .stdout(predicate::str::contains("Logged in to Acme as Ada"));
+    // 1 s before each poll, plus the 5 s slow_down asks for.
+    assert!(started.elapsed() >= std::time::Duration::from_secs(8));
+
+    let entry = &read_hosts(&dir)["profiles"]["default"];
+    assert_eq!(entry["access_token"].as_str(), Some("ACCESS9"));
+    assert_eq!(entry["refresh_token"].as_str(), Some("REFRESH9"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn device_login_declined_in_the_browser_fails() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/id/connect/deviceauthorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(device_authorization(1)))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/id/connect/token"))
+        .respond_with(oauth_error("access_denied"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let dir = TempDir::new().unwrap();
+
+    Command::new(cargo_bin!("2bec"))
+        .env_clear()
+        .env("TWOBEC_CONFIG_DIR", dir.path())
+        .env("TWOBEC_API_URL", server.uri())
+        .args(["auth", "login", "--device"])
+        .stdin(Stdio::null())
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "the login was declined in the browser",
+        ));
+    assert!(!hosts_path(&dir).exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn device_login_explains_a_client_without_the_grant() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/id/connect/deviceauthorization"))
+        .respond_with(oauth_error("unauthorized_client"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let dir = TempDir::new().unwrap();
+
+    Command::new(cargo_bin!("2bec"))
+        .env_clear()
+        .env("TWOBEC_CONFIG_DIR", dir.path())
+        .env("TWOBEC_API_URL", server.uri())
+        .args(["auth", "login", "--device"])
+        .stdin(Stdio::null())
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains(
+            "unauthorized_client (the 2bec client is not allowed the device grant)",
+        ));
 }
