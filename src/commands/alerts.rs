@@ -6,8 +6,9 @@ use clap::{Args, Subcommand};
 
 use super::Context;
 use super::runs::ensure_guid;
-use crate::api::alerts::{self, Alert, Channel, Notification};
+use crate::api::alerts::{self, Alert, Channel, Notification, TestSent, TestWrite};
 use crate::api::page::{Fetch, Page, fetch_items};
+use crate::http::WriteOptions;
 use crate::output::{OutputArgs, Table, or_dash, short_time};
 
 #[derive(Args, Debug)]
@@ -17,10 +18,6 @@ pub struct AlertsArgs {
 }
 
 #[derive(Subcommand, Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "clap builds the enum once; the notifications filter is the big one"
-)]
 enum AlertsCommand {
     /// List the alert configurations and what is wrong with them
     List {
@@ -90,6 +87,85 @@ thisMonth, lastMonth. A range spans at most 366 days.")]
         #[command(flatten)]
         output: OutputArgs,
     },
+    /// Create an alert from a JSON body (needs alerts:write)
+    #[command(after_help = "\
+BODY is JSON: a literal, `-` for stdin, or `@file`. Shape (see the API docs
+for POST /v2/alerts):
+  {\"name\": \"Checkout down\", \"group\": \"<group id>\",
+   \"failure\": {\"scenarios\": [\"<scenario id>\"], \"ranks\": [1, 3],
+               \"notifyRestoration\": true}}
+Find group ids with `2bec alerts groups list`. The request carries an
+Idempotency-Key, so a retried call does not create twice.")]
+    Create {
+        /// JSON body; `-` for stdin, `@file` for a file
+        body: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Change an alert with a JSON merge patch (needs alerts:write)
+    #[command(after_help = "\
+Examples:
+  2bec alerts edit 7f3c... '{\"active\": false}'
+  2bec alerts edit 7f3c... @patch.json --if-match \"$(2bec alerts get 7f3c... --jq .etag)\"
+
+A present member replaces, an absent one stays; `failure` and `responseTime`
+merge member by member (null removes the rule); `social` and `quietPeriods`
+are replaced whole.")]
+    Edit {
+        /// Alert id
+        id: String,
+        /// JSON merge patch; `-` for stdin, `@file` for a file
+        body: String,
+        /// Only update if the alert still has this ETag (from `alerts get`)
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Delete an alert; its recipient group stays (needs alerts:write)
+    #[command(alias = "rm")]
+    Delete {
+        /// Alert id
+        id: String,
+        /// Only delete if the alert still has this ETag
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+    },
+    /// Copy an alert, inactive, as a starting point to edit (needs alerts:write)
+    Duplicate {
+        /// Alert id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Really send a test alert to a recipient or to e-mail addresses (needs alerts:write)
+    #[command(after_help = "\
+Examples:
+  2bec alerts test --channel sms --recipient 1a2b...
+  2bec alerts test --channel mail --mail ops@example.com --mail oncall@example.com
+  2bec alerts test --channel mail --recipient 1a2b... --message \"drill\"
+
+Channels: mail, sms, voice, signal. Free addresses (--mail, 5 at most) work
+on the mail channel only; a recipient id comes from `alerts recipients list`.")]
+    Test {
+        /// Channel to send through
+        #[arg(long, value_name = "CHANNEL")]
+        channel: String,
+        /// Recipient id, a subscriber of the space
+        #[arg(long, value_name = "ID")]
+        recipient: Option<String>,
+        /// Free e-mail address (repeatable, mail channel only)
+        #[arg(long = "mail", value_name = "ADDRESS")]
+        mails: Vec<String>,
+        /// A line added to the test message
+        #[arg(long, value_name = "TEXT")]
+        message: Option<String>,
+        /// Subject template to try on the mail channel
+        #[arg(long, value_name = "TEMPLATE")]
+        mail_subject: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
 }
 
 pub async fn run(ctx: &Context, args: AlertsArgs) -> Result<()> {
@@ -126,7 +202,149 @@ pub async fn run(ctx: &Context, args: AlertsArgs) -> Result<()> {
             notifications(ctx, &filter, limit, all, output).await
         }
         AlertsCommand::Channels { output } => channels(ctx, output).await,
+        AlertsCommand::Create { body, output } => create(ctx, &body, output).await,
+        AlertsCommand::Edit {
+            id,
+            body,
+            if_match,
+            output,
+        } => edit(ctx, &id, &body, if_match, output).await,
+        AlertsCommand::Delete { id, if_match } => delete(ctx, &id, if_match).await,
+        AlertsCommand::Duplicate { id, output } => duplicate(ctx, &id, output).await,
+        AlertsCommand::Test {
+            channel,
+            recipient,
+            mails,
+            message,
+            mail_subject,
+            output,
+        } => {
+            let body = build_test(&channel, recipient, mails, message, mail_subject)?;
+            test(ctx, &body, output).await
+        }
     }
+}
+
+async fn create(ctx: &Context, body: &str, out: OutputArgs) -> Result<()> {
+    let body = super::read_json_body(body)?;
+    let resp = ctx
+        .client()?
+        .post_json("v2/alerts", &body, &WriteOptions::idempotent())
+        .await?;
+    let a: Alert = resp.json()?;
+    if !out.wants_json() {
+        eprintln!("Created alert {} ({})", a.name, a.id);
+    }
+    print_alert(&a, resp.etag.as_deref(), &out)
+}
+
+async fn edit(
+    ctx: &Context,
+    id: &str,
+    body: &str,
+    if_match: Option<String>,
+    out: OutputArgs,
+) -> Result<()> {
+    ensure_guid("alert id", id)?;
+    let body = super::read_json_body(body)?;
+    let write = WriteOptions {
+        idempotency_key: None,
+        if_match,
+    };
+    let resp = ctx
+        .client()?
+        .patch_merge(&format!("v2/alerts/{id}"), &body, &write)
+        .await?;
+    let a: Alert = resp.json()?;
+    print_alert(&a, resp.etag.as_deref(), &out)
+}
+
+async fn delete(ctx: &Context, id: &str, if_match: Option<String>) -> Result<()> {
+    ensure_guid("alert id", id)?;
+    let write = WriteOptions {
+        idempotency_key: None,
+        if_match,
+    };
+    ctx.client()?
+        .delete(&format!("v2/alerts/{id}"), &write)
+        .await?;
+    eprintln!("Deleted alert {id}");
+    Ok(())
+}
+
+async fn duplicate(ctx: &Context, id: &str, out: OutputArgs) -> Result<()> {
+    ensure_guid("alert id", id)?;
+    let resp = ctx
+        .client()?
+        .post_json(
+            &format!("v2/alerts/{id}:duplicate"),
+            &serde_json::json!({}),
+            &WriteOptions::idempotent(),
+        )
+        .await?;
+    let a: Alert = resp.json()?;
+    if !out.wants_json() {
+        eprintln!("Created alert {} ({}), inactive", a.name, a.id);
+    }
+    print_alert(&a, resp.etag.as_deref(), &out)
+}
+
+/// Validate the test flags the way the API does, before sending.
+fn build_test(
+    channel: &str,
+    recipient: Option<String>,
+    mails: Vec<String>,
+    message: Option<String>,
+    mail_subject: Option<String>,
+) -> Result<TestWrite> {
+    let channel = canonical("--channel", channel, &alerts::TEST_CHANNELS)?;
+    if let Some(r) = &recipient {
+        ensure_guid("--recipient", r)?;
+    }
+    if recipient.is_none() && mails.is_empty() {
+        bail!("give --recipient and/or --mail");
+    }
+    if !mails.is_empty() && channel != "mail" {
+        bail!("--mail works on the mail channel only");
+    }
+    if mails.len() > 5 {
+        bail!("at most 5 --mail addresses");
+    }
+    for m in &mails {
+        if !m.contains('@') || m.contains(char::is_whitespace) {
+            bail!("--mail `{m}` is not an e-mail address");
+        }
+    }
+    Ok(TestWrite {
+        channel,
+        recipient,
+        mails,
+        message: message.filter(|m| !m.trim().is_empty()),
+        mail_subject: mail_subject.filter(|m| !m.trim().is_empty()),
+    })
+}
+
+async fn test(ctx: &Context, body: &TestWrite, out: OutputArgs) -> Result<()> {
+    let sent: TestSent = ctx
+        .client()?
+        .post_json("v2/alerts:test", body, &WriteOptions::idempotent())
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&sent);
+    }
+    println!(
+        "Sent {} test alert{} on {} to: {}",
+        sent.sent,
+        if sent.sent == 1 { "" } else { "s" },
+        sent.channel,
+        if sent.recipients.is_empty() {
+            "-".to_string()
+        } else {
+            sent.recipients.join(", ")
+        }
+    );
+    Ok(())
 }
 
 /// Filters of `alerts notifications`.
@@ -488,5 +706,18 @@ mod tests {
             ..NotificationFilter::default()
         };
         assert!(f.query().unwrap_err().to_string().contains("--channel"));
+    }
+
+    #[test]
+    fn test_body_is_validated() {
+        let b = build_test("MAIL", None, vec!["a@b.c".into()], Some(" ".into()), None).unwrap();
+        assert_eq!(b.channel, "mail");
+        assert!(b.message.is_none());
+        assert!(build_test("sms", None, vec![], None, None).is_err());
+        assert!(build_test("sms", Some(G.into()), vec!["a@b.c".into()], None, None).is_err());
+        assert!(build_test("mail", None, vec!["nope".into()], None, None).is_err());
+        assert!(build_test("fax", Some(G.into()), vec![], None, None).is_err());
+        let many: Vec<String> = (0..6).map(|i| format!("a{i}@b.c")).collect();
+        assert!(build_test("mail", None, many, None, None).is_err());
     }
 }
