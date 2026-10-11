@@ -2,7 +2,8 @@
 //! OpenAPI document. A `scope-missing` answer does not name the scope, so
 //! the CLI names it from this table.
 
-/// `{}` matches one path segment. Paths are without a leading slash.
+/// `{}` matches one path segment, `{}:action` a segment ending with
+/// `:action`. Paths are without a leading slash.
 const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "v2/run-requests", "runs:request"),
     ("GET", "v2/run-requests/{}", "runs:request"),
@@ -22,6 +23,35 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("POST", "v2/runs/{}/tags", "runs:write"),
     ("DELETE", "v2/runs/{}/tags/{}", "runs:write"),
     ("POST", "v2/runs:tag", "runs:write"),
+    ("GET", "v2/alerts", "alerts:read"),
+    ("POST", "v2/alerts", "alerts:write"),
+    ("GET", "v2/alerts/{}", "alerts:read"),
+    ("PATCH", "v2/alerts/{}", "alerts:write"),
+    ("DELETE", "v2/alerts/{}", "alerts:write"),
+    ("POST", "v2/alerts/{}:duplicate", "alerts:write"),
+    ("POST", "v2/alerts:test", "alerts:write"),
+    ("GET", "v2/notifications", "alerts:read"),
+    ("GET", "v2/alert-channels", "alerts:read"),
+    ("GET", "v2/alert-groups", "alerts:read"),
+    ("POST", "v2/alert-groups", "alerts:write"),
+    ("GET", "v2/alert-groups/{}", "alerts:read"),
+    ("PATCH", "v2/alert-groups/{}", "alerts:write"),
+    ("DELETE", "v2/alert-groups/{}", "alerts:write"),
+    ("GET", "v2/alert-recipients", "alerts:read"),
+    ("POST", "v2/alert-recipients/{}:mute", "alerts:write"),
+    ("POST", "v2/alert-recipients/{}:unmute", "alerts:write"),
+    ("GET", "v2/alert-suspensions", "alerts:read"),
+    ("POST", "v2/alert-suspensions/steps:suspend", "alerts:write"),
+    ("POST", "v2/alert-suspensions/steps:resume", "alerts:write"),
+    ("GET", "v2/alert-suspensions/windows/{}", "alerts:read"),
+    ("POST", "v2/alert-suspensions/windows", "alerts:write"),
+    ("PATCH", "v2/alert-suspensions/windows/{}", "alerts:write"),
+    (
+        "POST",
+        "v2/alert-suspensions/windows/{}:end",
+        "alerts:write",
+    ),
+    ("DELETE", "v2/alert-suspensions/windows/{}", "alerts:write"),
     ("GET", "v2/scenario-groups", "scenarios:read"),
     ("GET", "v2/scenario-groups/{}", "scenarios:read"),
     ("GET", "v2/scenarios", "scenarios:read"),
@@ -70,10 +100,16 @@ fn matches(pattern: &str, path: &str) -> bool {
     loop {
         match (p.next(), s.next()) {
             (None, None) => return true,
-            (Some("{}"), Some(seg)) if !seg.is_empty() => {}
-            (Some(a), Some(b)) if a == b => {}
+            (Some(a), Some(b)) if segment_matches(a, b) => {}
             _ => return false,
         }
+    }
+}
+
+fn segment_matches(pattern: &str, segment: &str) -> bool {
+    match pattern.strip_prefix("{}") {
+        Some(suffix) => segment.len() > suffix.len() && segment.ends_with(suffix),
+        None => pattern == segment,
     }
 }
 
@@ -97,6 +133,15 @@ mod tests {
             required("GET", "v2/scenarios/abc/documentation.pdf?technical=true"),
             Some("scenarios:read")
         );
+        assert_eq!(
+            required("POST", "v2/alert-recipients/abc:mute"),
+            Some("alerts:write")
+        );
+        assert_eq!(
+            required("POST", "v2/scenarios/abc:pause"),
+            Some("monitoring:write")
+        );
+        assert_eq!(required("POST", "v2/scenarios/:pause"), None);
         assert_eq!(required("GET", "v2/unknown"), None);
         assert_eq!(required("GET", "v2/runs/abc/extra/deep"), None);
     }
