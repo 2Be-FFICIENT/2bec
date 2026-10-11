@@ -1,4 +1,4 @@
-//! `2bec auth`: log in with an API key, inspect or drop the credential.
+//! `2bec auth`: log in (browser or API key), inspect or drop the credential.
 
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
@@ -6,7 +6,8 @@ use std::io::{IsTerminal, Read, Write};
 
 use super::Context;
 use crate::api::me::{self, Me};
-use crate::auth::store::CredentialStore;
+use crate::auth::oauth;
+use crate::auth::store::{CredentialStore, StoredCredential};
 use crate::auth::token::{self, TokenKind};
 use crate::auth::{Credential, TokenSource};
 
@@ -16,21 +17,39 @@ pub struct AuthArgs {
     command: AuthCommand,
 }
 
+impl AuthArgs {
+    /// `login` and `logout` replace or drop the credential, so renewing it
+    /// first would be wasted work (or a confusing warning).
+    pub fn skips_refresh(&self) -> bool {
+        matches!(
+            self.command,
+            AuthCommand::Login { .. } | AuthCommand::Logout
+        )
+    }
+}
+
 #[derive(Subcommand, Debug)]
 enum AuthCommand {
-    /// Store an API key for the active profile after verifying it
+    /// Log in as yourself in the browser, or store an API key
     #[command(after_help = "\
 Examples:
-  2bec auth login                      # prompts for the key (hidden)
-  echo \"$KEY\" | 2bec auth login       # reads it from stdin
+  2bec auth login                      # opens the browser (person login)
+  2bec auth login --no-browser         # prints the URL to open elsewhere
+  2bec auth login --with-token         # prompts for an API key (hidden)
+  echo \"$KEY\" | 2bec auth login       # reads an API key from stdin
   2bec --profile dev auth login --with-token < key.txt
 
-An API Admin creates keys in the web app under Administration > API access;
-the secret is shown once.")]
+The browser login asks the identity server for the scopes pegas-api:read
+and pegas-api:write on your own account; the access token is renewed
+automatically for 30 days. An API Admin creates API keys in the web app
+under Administration > API access; the secret is shown once.")]
     Login {
-        /// Read the key from stdin instead of prompting
+        /// Store an API key instead of logging in with the browser
         #[arg(long)]
         with_token: bool,
+        /// Print the login URL instead of opening a browser
+        #[arg(long, conflicts_with = "with_token")]
+        no_browser: bool,
         /// Print the verified identity as JSON
         #[arg(long)]
         json: bool,
@@ -44,7 +63,7 @@ the secret is shown once.")]
         #[arg(long)]
         show_token: bool,
     },
-    /// Remove the stored credential for the active profile
+    /// Forget the stored credential for the active profile
     Logout,
     /// Print the active token, for use with other tools
     #[command(
@@ -55,9 +74,20 @@ the secret is shown once.")]
 
 pub async fn run(ctx: &Context, args: AuthArgs) -> Result<()> {
     match args.command {
-        AuthCommand::Login { with_token, json } => login(ctx, with_token, json).await,
+        AuthCommand::Login {
+            with_token,
+            no_browser,
+            json,
+        } => {
+            // A piped stdin carries a key; a terminal means the browser flow.
+            if with_token || !std::io::stdin().is_terminal() {
+                login_with_key(ctx, json).await
+            } else {
+                login_in_browser(ctx, no_browser, json).await
+            }
+        }
         AuthCommand::Status { json, show_token } => status(ctx, json, show_token).await,
-        AuthCommand::Logout => logout(ctx),
+        AuthCommand::Logout => logout(ctx).await,
         AuthCommand::Token => {
             let c = ctx.require_credential()?;
             println!("{}", c.token);
@@ -66,8 +96,30 @@ pub async fn run(ctx: &Context, args: AuthArgs) -> Result<()> {
     }
 }
 
-async fn login(ctx: &Context, with_token: bool, json: bool) -> Result<()> {
-    let raw = read_token(with_token)?;
+async fn login_in_browser(ctx: &Context, no_browser: bool, json: bool) -> Result<()> {
+    let http = ctx.plain_http()?;
+    let endpoints = oauth::discover(&http, &ctx.settings.api_url, ctx.settings.issuer.as_deref())
+        .await
+        .context("cannot find the identity server")?;
+    let cfg = ctx.settings.login_config(no_browser);
+    let tokens = oauth::login(&http, &endpoints, &cfg).await?;
+
+    let client = ctx.client_with(Some(&tokens.access_token))?;
+    let me: Me = client.get(me::PATH).await?.json()?;
+    ctx.store.set(
+        &ctx.settings.profile,
+        &StoredCredential::OAuth {
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_at: tokens.expires_at,
+            issuer: endpoints.issuer,
+        },
+    )?;
+    report_login(ctx, &me, json)
+}
+
+async fn login_with_key(ctx: &Context, json: bool) -> Result<()> {
+    let raw = read_token()?;
     let kind = token::classify(&raw).map_err(|e| anyhow::anyhow!("not a valid API key: {e}"))?;
     if let TokenKind::ApiKey { env } = kind {
         warn_env_mismatch(env, &ctx.settings.api_url);
@@ -75,10 +127,16 @@ async fn login(ctx: &Context, with_token: bool, json: bool) -> Result<()> {
 
     let client = ctx.client_with(Some(&raw))?;
     let me: Me = client.get(me::PATH).await?.json()?;
-    ctx.store.set(&ctx.settings.profile, &raw)?;
+    ctx.store.set(
+        &ctx.settings.profile,
+        &StoredCredential::ApiKey { token: raw },
+    )?;
+    report_login(ctx, &me, json)
+}
 
+fn report_login(ctx: &Context, me: &Me, json: bool) -> Result<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(&me)?);
+        println!("{}", serde_json::to_string_pretty(me)?);
         return Ok(());
     }
     let who = match (&me.key, &me.person) {
@@ -103,7 +161,13 @@ async fn status(ctx: &Context, json: bool, show_token: bool) -> Result<()> {
         v["profile"] = ctx.settings.profile.clone().into();
         v["apiUrl"] = ctx.settings.api_url.clone().into();
         v["tokenSource"] = source_name(credential.source).into();
+        v["tokenKind"] = kind_name(credential).into();
         v["store"] = ctx.store.describe().into();
+        if let Some(o) = &credential.oauth {
+            v["expiresAt"] = o.expires_at.into();
+            v["issuer"] = o.issuer.clone().into();
+            v["canRefresh"] = o.refresh_token.is_some().into();
+        }
         if show_token {
             v["token"] = credential.token.clone().into();
         }
@@ -114,6 +178,7 @@ async fn status(ctx: &Context, json: bool, show_token: bool) -> Result<()> {
     println!("Profile:      {}", ctx.settings.profile);
     println!("API URL:      {}", ctx.settings.api_url);
     println!("Token source: {}", credential.source);
+    println!("Token kind:   {}", kind_name(credential));
     println!("Store:        {}", ctx.store.describe());
     let shown = if show_token {
         credential.token.clone()
@@ -121,6 +186,20 @@ async fn status(ctx: &Context, json: bool, show_token: bool) -> Result<()> {
         token::display_prefix(&credential.token)
     };
     println!("Token:        {shown}");
+    if let Some(o) = &credential.oauth {
+        let left = o.expires_at.saturating_sub(oauth::now_unix());
+        let renew = if o.refresh_token.is_some() {
+            "renewed automatically"
+        } else {
+            "no refresh token"
+        };
+        println!(
+            "Access token: expires in {}m{}s, {renew}",
+            left / 60,
+            left % 60
+        );
+        println!("Issuer:       {}", o.issuer);
+    }
     println!("Tenant:       {} ({})", me.tenant.name, me.tenant.id);
     if let Some(k) = &me.key {
         println!("Caller:       API key `{}` ({})", k.name, k.prefix);
@@ -149,6 +228,7 @@ async fn status(ctx: &Context, json: bool, show_token: bool) -> Result<()> {
         if let Some(c) = &p.client {
             println!("Client:       {c}");
         }
+        println!("Note:         person tokens ignore Idempotency-Key and never get webhooks:write");
     }
     let reset = match resp.rate_limit {
         Some(h) => format!("in {}s", h.reset_secs),
@@ -161,8 +241,28 @@ async fn status(ctx: &Context, json: bool, show_token: bool) -> Result<()> {
     Ok(())
 }
 
-fn logout(ctx: &Context) -> Result<()> {
+async fn logout(ctx: &Context) -> Result<()> {
     let profile = &ctx.settings.profile;
+    // Revoke the refresh token first so the login cannot be renewed any more.
+    if let Some(Credential {
+        source: TokenSource::Stored,
+        oauth: Some(state),
+        ..
+    }) = &ctx.credential
+        && let Some(refresh) = &state.refresh_token
+    {
+        let http = ctx.plain_http()?;
+        let revoked = async {
+            let endpoints =
+                oauth::discover(&http, &ctx.settings.api_url, Some(&state.issuer)).await?;
+            oauth::revoke(&http, &endpoints, &ctx.settings.oauth_client_id, refresh).await
+        }
+        .await;
+        match revoked {
+            Ok(()) => eprintln!("Revoked the login at {}", state.issuer),
+            Err(e) => eprintln!("warning: could not revoke the login ({e}); it expires on its own"),
+        }
+    }
     if ctx.store.remove(profile)? {
         println!("Removed the credential for profile `{profile}`");
     } else {
@@ -178,11 +278,11 @@ fn logout(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-/// Read the key from stdin (when asked or when stdin is not a terminal) or
-/// from a hidden prompt.
-fn read_token(with_token: bool) -> Result<String> {
+/// Read the key from stdin when it is not a terminal, else from a hidden
+/// prompt.
+fn read_token() -> Result<String> {
     let stdin = std::io::stdin();
-    let raw = if with_token || !stdin.is_terminal() {
+    let raw = if !stdin.is_terminal() {
         let mut s = String::new();
         stdin
             .lock()
@@ -216,6 +316,16 @@ fn source_name(source: TokenSource) -> &'static str {
     match source {
         TokenSource::Override => "override",
         TokenSource::Stored => "stored",
+    }
+}
+
+fn kind_name(c: &Credential) -> &'static str {
+    if c.oauth.is_some() {
+        "person login (OAuth)"
+    } else if c.token.starts_with(token::KEY_PREFIX) {
+        "API key"
+    } else {
+        "bearer token"
     }
 }
 
