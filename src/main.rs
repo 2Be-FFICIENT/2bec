@@ -60,6 +60,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Alert configurations, recipients, suspensions and the alerts sent
+    Alerts(commands::alerts::AlertsArgs),
     /// Log in, show or drop the credential used to call the API
     Auth(commands::auth::AuthArgs),
     /// Check that the API answers and print its version and latency
@@ -123,6 +125,7 @@ async fn run(cli: Cli) -> Result<()> {
     };
 
     match cli.command {
+        Command::Alerts(args) => commands::alerts::run(&ctx, args).await?,
         Command::Auth(args) => commands::auth::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
