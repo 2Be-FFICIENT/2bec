@@ -125,6 +125,7 @@ the API answers `social-scenario` (409) for a social monitoring one.
 2bec metrics voice-quality                           # line quality of the voice (IVR) calls
 2bec metrics social --period today --interval 15 --events   # posts, incidents, grades
 2bec metrics social-analysis                         # daily AI reading: issues and keywords
+2bec metrics pdf availability --period lastMonth -o sla.pdf   # also response-times, voice-quality
 ```
 
 Every read takes `--from/--to`, `--period` and `--tz` like `runs list`, and
@@ -154,6 +155,30 @@ Series by bucket are in `--json` only. One scenario's own figures are under
 
 Writes carry an `Idempotency-Key`; `edit`/`delete` take `--if-match` with the
 ETag shown by `get`. JSON bodies accept a literal, `-` for stdin and `@file`.
+
+## Reports
+
+```sh
+2bec reports list --kind grouped                     # saved reports: grouped or comparative
+2bec reports get <report>                            # definition, ETag, whether the API owns it
+2bec reports data <report> --window week --date 2026-10-05   # grouped: month|week|day
+2bec reports data <report> --period last30d --stat p50       # comparative: period + stat
+2bec reports pdf <report> --lang en --planning plannedInterruption -o report.pdf
+2bec reports create @definition.json                 # JSON body; needs reports:write
+2bec reports edit <report> '{"name": "SLA"}' --if-match <etag>
+2bec reports delete <report> [--purge]               # alias rm; grouped reports archive unless --purge
+2bec reports schedules list / get <schedule>
+2bec reports schedules create --type availability-dashboard --scenario <id>… --frequency weekly --to ops@example.com
+2bec reports schedules edit <schedule> --enabled false --if-match <etag>
+2bec reports schedules delete / send <schedule>      # send mails the report now, for real
+2bec reports deliveries --period lastMonth --status failed
+```
+
+A saved report has two kinds with different definitions, so `create` and
+`edit` take JSON; schedules take flags. Only reports the API created can be
+changed (403 `not-own-report`). Reads need `reports:read`, writes and
+`send` `reports:write`; the dashboard PDFs under `metrics pdf` need
+`reports:read` too.
 
 ## Webhooks
 
