@@ -173,8 +173,18 @@ impl Client {
 
     /// `DELETE` a resource.
     pub async fn delete(&self, path: &str, write: &WriteOptions) -> Result<Response, ApiError> {
+        self.delete_with(path, &[], write).await
+    }
+
+    /// `DELETE` with query parameters (URL-encoded by reqwest).
+    pub async fn delete_with(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        write: &WriteOptions,
+    ) -> Result<Response, ApiError> {
         let url = self.url(path);
-        self.send_write(write, || self.inner.delete(&url))
+        self.send_write(write, || self.inner.delete(&url).query(query))
             .await
             .map_err(|e| e.with_scope_hint("DELETE", path))
     }
