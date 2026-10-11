@@ -7,16 +7,32 @@ use clap::Args;
 use serde::Serialize;
 use std::io::{IsTerminal, Write};
 
-/// Shared `--json` flag for commands that print data.
-#[derive(Args, Debug, Clone, Copy, Default)]
+/// Shared `--json` / `--jq` flags for commands that print data.
+#[derive(Args, Debug, Clone, Default)]
 pub struct OutputArgs {
     /// Print JSON instead of a table
     #[arg(long)]
     pub json: bool,
+    /// Filter the JSON through this jq expression (needs `jq` on PATH; implies --json)
+    #[arg(long, value_name = "EXPR")]
+    pub jq: Option<String>,
 }
 
 impl OutputArgs {
-    /// Print `value` as JSON when `--json` was given, else run `table`.
+    /// Whether the command prints JSON (`--json` or `--jq`) rather than text.
+    pub fn wants_json(&self) -> bool {
+        self.json || self.jq.is_some()
+    }
+
+    /// Print `value` as JSON, through `jq` when `--jq` was given.
+    pub fn print_json<T: Serialize>(&self, value: &T) -> Result<()> {
+        match &self.jq {
+            Some(expr) => filter_with_jq(value, expr),
+            None => print_json(value),
+        }
+    }
+
+    /// Print `value` as JSON when `--json`/`--jq` was given, else run `table`.
     /// An empty table prints `empty_note` on stderr instead of a lone header
     /// when stdout is a terminal.
     pub fn print<T: Serialize>(
@@ -25,8 +41,8 @@ impl OutputArgs {
         empty_note: &str,
         table: impl FnOnce() -> Table,
     ) -> Result<()> {
-        if self.json {
-            return print_json(value);
+        if self.wants_json() {
+            return self.print_json(value);
         }
         let t = table();
         if t.is_empty() && stdout_is_tty() {
@@ -57,6 +73,41 @@ pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
         serde_json::to_writer(&mut out, value)?;
     }
     out.write_all(b"\n")?;
+    Ok(())
+}
+
+/// Pipe `value` as compact JSON through `jq <expr>`, which inherits stdout
+/// so it colors and pretty-prints on a terminal by itself.
+fn filter_with_jq<T: Serialize>(value: &T, expr: &str) -> Result<()> {
+    use std::process::{Command, Stdio};
+    let mut child = match Command::new("jq")
+        .arg(expr)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            anyhow::bail!("--jq needs the `jq` program on PATH; install it or use --json")
+        }
+        Err(e) => return Err(anyhow::anyhow!("cannot start jq: {e}")),
+    };
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no jq stdin"))?;
+        // A closed pipe (jq failed on the expression) is reported by the exit status.
+        let _ = serde_json::to_writer(&mut stdin, value);
+        let _ = stdin.write_all(b"\n");
+    }
+    let status = child
+        .wait()
+        .map_err(|e| anyhow::anyhow!("cannot wait for jq: {e}"))?;
+    if !status.success() {
+        anyhow::bail!("jq exited with {}", status.code().unwrap_or(1));
+    }
     Ok(())
 }
 

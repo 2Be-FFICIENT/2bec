@@ -416,7 +416,7 @@ async fn trigger(
         )
         .await?
         .json()?;
-    if !out.json {
+    if !out.wants_json() {
         println!(
             "Requested run {} of {}: {}",
             req.id,
@@ -446,14 +446,14 @@ async fn trigger(
                 .get(&format!("v2/run-requests/{}", req.id))
                 .await?
                 .json()?;
-            if !out.json && req.stage != last_stage {
+            if !out.wants_json() && req.stage != last_stage {
                 eprintln!("  {}", outcome_line(&req));
                 last_stage = req.stage.clone();
             }
         }
     }
-    if out.json {
-        return crate::output::print_json(&req);
+    if out.wants_json() {
+        return out.print_json(&req);
     }
     if wait {
         println!("Final: {}", outcome_line(&req));
@@ -567,8 +567,8 @@ async fn requests(ctx: &Context, cmd: RequestsCommand) -> Result<()> {
                 .get(&format!("v2/run-requests/{id}"))
                 .await?
                 .json()?;
-            if output.json {
-                return crate::output::print_json(&r);
+            if output.wants_json() {
+                return output.print_json(&r);
             }
             println!("Request:   {}", r.id);
             println!("Scenario:  {} ({})", r.scenario.name, r.scenario.id);
@@ -594,8 +594,8 @@ async fn requests(ctx: &Context, cmd: RequestsCommand) -> Result<()> {
                 .get(&format!("v2/scenarios/{scenario}/run-requests"))
                 .await?
                 .json()?;
-            if output.json {
-                return crate::output::print_json(&st);
+            if output.wants_json() {
+                return output.print_json(&st);
             }
             println!("Scenario:    {} ({})", st.scenario.name, st.scenario.id);
             println!(
@@ -762,12 +762,12 @@ fn comment_table(items: &[RunComment]) -> Table {
 }
 
 fn print_comment(c: &RunComment, etag: Option<&str>, out: OutputArgs) -> Result<()> {
-    if out.json {
+    if out.wants_json() {
         let mut v = serde_json::to_value(c)?;
         if let Some(e) = etag {
             v["etag"] = e.into();
         }
-        return crate::output::print_json(&v);
+        return out.print_json(&v);
     }
     println!("Comment: {}", c.id);
     println!("Author:  {}", c.author);
@@ -858,8 +858,8 @@ async fn diagnosis(ctx: &Context, id: &str, opale: bool, out: OutputArgs) -> Res
         .get_with(&format!("v2/runs/{id}/diagnosis"), &query)
         .await?
         .json()?;
-    if out.json {
-        return crate::output::print_json(&d);
+    if out.wants_json() {
+        return out.print_json(&d);
     }
     println!("Run:          {}", d.id);
     println!("Scenario:     {} ({})", d.scenario.name, d.scenario.id);
@@ -1005,7 +1005,7 @@ async fn list(
         }
         t
     })?;
-    if !out.json
+    if !out.wants_json()
         && let Some(total) = page.total
         && (total as usize) > page.items.len()
     {
@@ -1020,8 +1020,8 @@ async fn list(
 async fn get(ctx: &Context, id: &str, out: OutputArgs) -> Result<()> {
     ensure_guid("run id", id)?;
     let run: Run = ctx.client()?.get(&format!("v2/runs/{id}")).await?.json()?;
-    if out.json {
-        return crate::output::print_json(&run);
+    if out.wants_json() {
+        return out.print_json(&run);
     }
     println!("Run:         {}", run.id);
     println!("Scenario:    {} ({})", run.scenario.name, run.scenario.id);
