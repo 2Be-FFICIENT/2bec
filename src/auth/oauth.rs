@@ -1,5 +1,6 @@
 //! OAuth 2.0 login for a person: authorization code with PKCE on a loopback
-//! redirect (RFC 8252), refresh and revocation.
+//! redirect (RFC 8252), the device authorization grant for a machine
+//! without a browser (RFC 8628), refresh and revocation.
 //!
 //! The authorization server is discovered from the API's protected-resource
 //! metadata, then from its own `openid-configuration`. The `resource`
@@ -23,6 +24,9 @@ pub const SCOPES: &str = "pegas-api:read pegas-api:write offline_access";
 /// How long to wait for the browser to come back.
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Grant type of the device authorization flow.
+const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+
 /// Endpoints of the authorization server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoints {
@@ -30,6 +34,8 @@ pub struct Endpoints {
     pub authorization: String,
     pub token: String,
     pub revocation: Option<String>,
+    /// Device authorization endpoint, when the server offers the grant.
+    pub device_authorization: Option<String>,
 }
 
 /// What the token endpoint hands back.
@@ -64,6 +70,31 @@ struct OpenIdConfiguration {
     token_endpoint: String,
     #[serde(default)]
     revocation_endpoint: Option<String>,
+    #[serde(default)]
+    device_authorization_endpoint: Option<String>,
+}
+
+/// What the device authorization endpoint hands back.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeviceAuthorization {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    #[serde(default)]
+    pub verification_uri_complete: Option<String>,
+    #[serde(default = "default_device_expiry")]
+    pub expires_in: u64,
+    /// Seconds between two polls of the token endpoint.
+    #[serde(default = "default_device_interval")]
+    pub interval: u64,
+}
+
+fn default_device_expiry() -> u64 {
+    300
+}
+
+fn default_device_interval() -> u64 {
+    5
 }
 
 #[derive(Deserialize)]
@@ -81,6 +112,21 @@ struct OAuthError {
     error: String,
     #[serde(default)]
     error_description: Option<String>,
+    #[serde(skip)]
+    status: u16,
+}
+
+/// `error (description)`, or the HTTP status when the body named no error.
+fn describe(err: &OAuthError, status: u16) -> String {
+    let what = if err.error.is_empty() {
+        format!("HTTP {status}")
+    } else {
+        err.error.clone()
+    };
+    match &err.error_description {
+        Some(d) if !d.is_empty() => format!("{what} ({d})"),
+        _ => what,
+    }
 }
 
 /// Find the authorization server: `issuer` when given, else the API's
@@ -129,7 +175,88 @@ pub async fn discover(
         authorization: cfg.authorization_endpoint,
         token: cfg.token_endpoint,
         revocation: cfg.revocation_endpoint,
+        device_authorization: cfg.device_authorization_endpoint,
     })
+}
+
+/// Ask the identity server for a device code and a user code. The caller
+/// shows `user_code` and `verification_uri`, then calls [`poll_device`].
+pub async fn device_authorize(
+    http: &reqwest::Client,
+    endpoints: &Endpoints,
+    cfg: &LoginConfig,
+) -> Result<DeviceAuthorization> {
+    let Some(url) = &endpoints.device_authorization else {
+        bail!(
+            "the identity server at {} offers no device authorization; log in from a machine with a browser",
+            endpoints.issuer
+        );
+    };
+    let params = [("client_id", cfg.client_id.as_str()), ("scope", SCOPES)];
+    let resp = http
+        .post(url)
+        .form(&params)
+        .send()
+        .await
+        .with_context(|| format!("device authorization request to {url} failed"))?;
+    let status = resp.status();
+    let body = resp
+        .text()
+        .await
+        .context("cannot read the device authorization response")?;
+    if !status.is_success() {
+        let err: OAuthError = serde_json::from_str(&body).unwrap_or_default();
+        let hint = match err.error.as_str() {
+            "unauthorized_client" => " (the 2bec client is not allowed the device grant)",
+            _ => "",
+        };
+        bail!(
+            "identity server refused the device authorization: {}{hint}",
+            describe(&err, status.as_u16())
+        );
+    }
+    serde_json::from_str(&body).context("device authorization response is not the expected JSON")
+}
+
+/// Poll the token endpoint until the person approves the device code, the
+/// code expires, or the person declines. Honors `interval` and `slow_down`.
+pub async fn poll_device(
+    http: &reqwest::Client,
+    endpoints: &Endpoints,
+    cfg: &LoginConfig,
+    auth: &DeviceAuthorization,
+) -> Result<Tokens> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(auth.expires_in);
+    let mut interval = Duration::from_secs(auth.interval.max(1));
+    let params = [
+        ("grant_type", DEVICE_GRANT),
+        ("device_code", auth.device_code.as_str()),
+        ("client_id", cfg.client_id.as_str()),
+        ("resource", cfg.resource.as_str()),
+    ];
+    loop {
+        tokio::time::sleep(interval).await;
+        if tokio::time::Instant::now() >= deadline {
+            bail!("the code expired before the login was approved; run `2bec auth login` again");
+        }
+        match token_request_raw(http, &endpoints.token, &params).await? {
+            Ok(tokens) => return Ok(tokens),
+            Err(err) => match err.error.as_str() {
+                "authorization_pending" => {}
+                "slow_down" => interval += Duration::from_secs(5),
+                "expired_token" => {
+                    bail!(
+                        "the code expired before the login was approved; run `2bec auth login` again"
+                    )
+                }
+                "access_denied" => bail!("the login was declined in the browser"),
+                _ => bail!(
+                    "identity server refused the token request: {}",
+                    describe(&err, err.status)
+                ),
+            },
+        }
+    }
 }
 
 /// Run the browser login and return the tokens.
@@ -328,6 +455,22 @@ async fn token_request(
     url: &str,
     params: &[(&str, &str)],
 ) -> Result<Tokens> {
+    match token_request_raw(http, url, params).await? {
+        Ok(tokens) => Ok(tokens),
+        Err(err) => bail!(
+            "identity server refused the token request: {}",
+            describe(&err, err.status)
+        ),
+    }
+}
+
+/// One token request. The outer error is transport or decoding; the inner
+/// `Err` is the server's OAuth error, which the device flow inspects.
+async fn token_request_raw(
+    http: &reqwest::Client,
+    url: &str,
+    params: &[(&str, &str)],
+) -> Result<std::result::Result<Tokens, OAuthError>> {
     let resp = http
         .post(url)
         .form(params)
@@ -340,26 +483,17 @@ async fn token_request(
         .await
         .context("cannot read the token response")?;
     if !status.is_success() {
-        let err: OAuthError = serde_json::from_str(&body).unwrap_or_default();
-        let what = if err.error.is_empty() {
-            format!("HTTP {status}")
-        } else {
-            err.error
-        };
-        match err.error_description {
-            Some(d) if !d.is_empty() => {
-                bail!("identity server refused the token request: {what} ({d})")
-            }
-            _ => bail!("identity server refused the token request: {what}"),
-        }
+        let mut err: OAuthError = serde_json::from_str(&body).unwrap_or_default();
+        err.status = status.as_u16();
+        return Ok(Err(err));
     }
     let t: TokenResponse =
         serde_json::from_str(&body).context("token response is not the expected JSON")?;
-    Ok(Tokens {
+    Ok(Ok(Tokens {
         access_token: t.access_token,
         refresh_token: t.refresh_token,
         expires_at: now_unix() + t.expires_in.unwrap_or(3600),
-    })
+    }))
 }
 
 /// Current time as Unix seconds.
@@ -456,6 +590,7 @@ mod tests {
             authorization: "https://id.example/connect/authorize".into(),
             token: "https://id.example/connect/token".into(),
             revocation: None,
+            device_authorization: None,
         };
         let cfg = LoginConfig {
             client_id: "2bec".into(),
