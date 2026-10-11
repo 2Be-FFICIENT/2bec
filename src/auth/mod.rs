@@ -1,6 +1,7 @@
 //! Authentication: credential storage and token resolution.
 
 pub mod store;
+pub mod token;
 
 use anyhow::Result;
 use std::fmt;
