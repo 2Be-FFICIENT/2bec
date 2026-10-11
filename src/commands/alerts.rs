@@ -8,7 +8,7 @@ use super::Context;
 use super::runs::ensure_guid;
 use crate::api::alerts::{
     self, Alert, Channel, Group, GroupWrite, Notification, RecipientEntry, RecipientMuted,
-    TestSent, TestWrite,
+    StepWrite, StepsWrite, StepsWritten, Suspensions, TestSent, TestWrite, Window, WindowWrite,
 };
 use crate::api::page::{Fetch, Page, fetch_items};
 use crate::http::WriteOptions;
@@ -173,6 +173,126 @@ on the mail channel only; a recipient id comes from `alerts recipients list`.")]
     Groups(GroupsArgs),
     /// The subscribers alerts can reach, and their mute switch
     Recipients(RecipientsArgs),
+    /// What holds the alerts: switches, held steps, dated windows, muted people
+    Suspensions(SuspensionsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct SuspensionsArgs {
+    #[command(subcommand)]
+    command: Option<SuspensionsCommand>,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Subcommand, Debug)]
+enum SuspensionsCommand {
+    /// Show everything holding the alerts right now (the default)
+    Show {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Hold the failure alerts of steps until resumed (needs alerts:write)
+    #[command(after_help = "\
+Example:
+  2bec alerts suspensions suspend 7f3c.../1a2b... 7f3c.../3c4d...
+
+A step is SCENARIO/STEP, both ids from `2bec scenarios get <scenario>`.
+Response time alerts still go out.")]
+    Suspend {
+        /// Steps as SCENARIO/STEP ids
+        #[arg(required = true, value_name = "SCENARIO/STEP")]
+        steps: Vec<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Let the failure alerts of steps go out again (needs alerts:write)
+    Resume {
+        /// Steps as SCENARIO/STEP ids
+        #[arg(required = true, value_name = "SCENARIO/STEP")]
+        steps: Vec<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Dated windows holding the alerts: a change window, a known outage
+    Windows(WindowsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct WindowsArgs {
+    #[command(subcommand)]
+    command: WindowsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum WindowsCommand {
+    /// Show one window and its ETag
+    Get {
+        /// Window id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Create a window holding the alerts between two instants (needs alerts:write)
+    #[command(after_help = "\
+Examples:
+  2bec alerts suspensions windows create --start 2026-11-02T01:00:00Z --end 2026-11-02T04:00:00Z --all --comment \"DB upgrade\"
+  2bec alerts suspensions windows create --start … --end … --step 7f3c.../1a2b...
+
+Instants are RFC 3339, kept to the minute; the end must be ahead. The
+monitoring goes on, the runs are observed and counted.")]
+    Create {
+        /// Start, RFC 3339
+        #[arg(long, value_name = "TIME")]
+        start: String,
+        /// End, RFC 3339
+        #[arg(long, value_name = "TIME")]
+        end: String,
+        /// Hold every alert of the space
+        #[arg(long, conflicts_with = "steps")]
+        all: bool,
+        /// Hold the alerts of this step, SCENARIO/STEP (repeatable)
+        #[arg(long = "step", value_name = "SCENARIO/STEP")]
+        steps: Vec<String>,
+        /// Why the window exists
+        #[arg(long, value_name = "TEXT")]
+        comment: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Change a window with a JSON merge patch (needs alerts:write)
+    #[command(after_help = "\
+Example:
+  2bec alerts suspensions windows edit 7f3c... '{\"end\": \"2026-11-02T06:00:00Z\"}'
+
+Members: start, end, all, steps (the whole list of {scenario, step}), comment.")]
+    Edit {
+        /// Window id
+        id: String,
+        /// JSON merge patch; `-` for stdin, `@file` for a file
+        body: String,
+        /// Only update if the window still has this ETag
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// End an ongoing window now: the alerts it held go out again (needs alerts:write)
+    End {
+        /// Window id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Delete a window, whatever its state (needs alerts:write)
+    #[command(alias = "rm")]
+    Delete {
+        /// Window id
+        id: String,
+        /// Only delete if the window still has this ETag
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -333,7 +453,310 @@ pub async fn run(ctx: &Context, args: AlertsArgs) -> Result<()> {
         }
         AlertsCommand::Groups(args) => groups(ctx, args.command).await,
         AlertsCommand::Recipients(args) => recipients(ctx, args.command).await,
+        AlertsCommand::Suspensions(args) => match args.command {
+            None => suspensions(ctx, args.output).await,
+            Some(cmd) => suspensions_cmd(ctx, cmd).await,
+        },
     }
+}
+
+async fn suspensions_cmd(ctx: &Context, cmd: SuspensionsCommand) -> Result<()> {
+    match cmd {
+        SuspensionsCommand::Show { output } => suspensions(ctx, output).await,
+        SuspensionsCommand::Suspend { steps, output } => set_steps(ctx, &steps, true, output).await,
+        SuspensionsCommand::Resume { steps, output } => set_steps(ctx, &steps, false, output).await,
+        SuspensionsCommand::Windows(args) => windows(ctx, args.command).await,
+    }
+}
+
+async fn suspensions(ctx: &Context, out: OutputArgs) -> Result<()> {
+    let s: Suspensions = ctx.client()?.get("v2/alert-suspensions").await?.json()?;
+    if out.wants_json() {
+        return out.print_json(&s);
+    }
+    println!(
+        "Space switch:    {}",
+        if s.tenant_suspended {
+            "alerts held for the whole space"
+        } else {
+            "alerts go out"
+        }
+    );
+    println!(
+        "Platform switch: {}",
+        if s.platform_suspended {
+            "maintenance, alerts held by the platform"
+        } else {
+            "normal"
+        }
+    );
+    println!(
+        "Muted people:    {}",
+        if s.muted_recipients.is_empty() {
+            "-".to_string()
+        } else {
+            s.muted_recipients.join(", ")
+        }
+    );
+    let held: usize = s.suspended_steps.iter().map(|x| x.steps.len()).sum();
+    println!(
+        "Held steps:      {held}{}",
+        if s.hidden_steps > 0 {
+            format!(" (+{} of scenarios you do not see)", s.hidden_steps)
+        } else {
+            String::new()
+        }
+    );
+    if held > 0 {
+        let mut t = Table::new(["SCENARIO", "#", "STEP", "STEP ID", "WATCHED BY"]);
+        for sc in &s.suspended_steps {
+            for st in &sc.steps {
+                t.row([
+                    format!(
+                        "{}{}",
+                        sc.scenario.name,
+                        if sc.active { "" } else { " (inactive)" }
+                    ),
+                    st.order.to_string(),
+                    st.label.clone(),
+                    st.id.clone(),
+                    format!("{} alert(s)", st.watched_by),
+                ]);
+            }
+        }
+        t.print();
+    }
+    println!();
+    if !s.windows_available {
+        eprintln!("warning: the windows could not be read");
+    }
+    if s.windows.is_empty() {
+        println!("Windows:         none ongoing, upcoming or in the past 90 days");
+    } else {
+        println!("Windows:");
+        window_table(&s.windows).print();
+    }
+    Ok(())
+}
+
+fn window_table(windows: &[Window]) -> Table {
+    let mut t = Table::new(["ID", "STATE", "START", "END", "SCOPE", "COMMENT"]);
+    for w in windows {
+        t.row([
+            w.id.clone(),
+            w.state.clone(),
+            short_time(&w.start),
+            short_time(&w.end),
+            window_scope(w),
+            or_dash(w.comment.as_deref()),
+        ]);
+    }
+    t
+}
+
+fn window_scope(w: &Window) -> String {
+    match w.scope.as_str() {
+        "all" => "every alert".into(),
+        "pattern" => format!(
+            "names {} / {}",
+            or_dash(w.scenario_pattern.as_deref()),
+            or_dash(w.step_pattern.as_deref())
+        ),
+        _ => {
+            let n: usize = w.scenarios.iter().map(|s| s.steps.len()).sum();
+            let mut label = format!("{n} step{}", if n == 1 { "" } else { "s" });
+            if w.hidden_targets > 0 {
+                label.push_str(&format!(" (+{} hidden)", w.hidden_targets));
+            }
+            label
+        }
+    }
+}
+
+/// Parse `SCENARIO/STEP` pairs, both GUIDs.
+fn parse_steps(values: &[String]) -> Result<Vec<StepWrite>> {
+    values
+        .iter()
+        .map(|v| {
+            let Some((scenario, step)) = v.split_once('/') else {
+                bail!("step `{v}` must be SCENARIO/STEP ids");
+            };
+            ensure_guid("scenario id", scenario)?;
+            ensure_guid("step id", step)?;
+            Ok(StepWrite {
+                scenario: scenario.to_string(),
+                step: step.to_string(),
+            })
+        })
+        .collect()
+}
+
+async fn set_steps(ctx: &Context, steps: &[String], suspend: bool, out: OutputArgs) -> Result<()> {
+    let body = StepsWrite {
+        steps: parse_steps(steps)?,
+    };
+    let action = if suspend { "suspend" } else { "resume" };
+    let w: StepsWritten = ctx
+        .client()?
+        .post_json(
+            &format!("v2/alert-suspensions/steps:{action}"),
+            &body,
+            &WriteOptions::idempotent(),
+        )
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&w);
+    }
+    println!(
+        "{} {} step(s), {} unchanged{}",
+        if suspend { "Held" } else { "Released" },
+        w.written,
+        w.unchanged,
+        if w.failed > 0 {
+            format!(", {} failed", w.failed)
+        } else {
+            String::new()
+        }
+    );
+    Ok(())
+}
+
+async fn windows(ctx: &Context, cmd: WindowsCommand) -> Result<()> {
+    match cmd {
+        WindowsCommand::Get { id, output } => {
+            ensure_guid("window id", &id)?;
+            let resp = ctx
+                .client()?
+                .get(&format!("v2/alert-suspensions/windows/{id}"))
+                .await?;
+            let w: Window = resp.json()?;
+            print_window(&w, resp.etag.as_deref(), &output)
+        }
+        WindowsCommand::Create {
+            start,
+            end,
+            all,
+            steps,
+            comment,
+            output,
+        } => {
+            if !all && steps.is_empty() {
+                bail!("give --all or at least one --step");
+            }
+            let body = WindowWrite {
+                start,
+                end,
+                all,
+                steps: parse_steps(&steps)?,
+                comment: comment.filter(|c| !c.trim().is_empty()),
+            };
+            let resp = ctx
+                .client()?
+                .post_json(
+                    "v2/alert-suspensions/windows",
+                    &body,
+                    &WriteOptions::idempotent(),
+                )
+                .await?;
+            let w: Window = resp.json()?;
+            if !output.wants_json() {
+                eprintln!("Created window {} ({})", w.id, w.state);
+            }
+            print_window(&w, resp.etag.as_deref(), &output)
+        }
+        WindowsCommand::Edit {
+            id,
+            body,
+            if_match,
+            output,
+        } => {
+            ensure_guid("window id", &id)?;
+            let body = super::read_json_body(&body)?;
+            let write = WriteOptions {
+                idempotency_key: None,
+                if_match,
+            };
+            let resp = ctx
+                .client()?
+                .patch_merge(&format!("v2/alert-suspensions/windows/{id}"), &body, &write)
+                .await?;
+            let w: Window = resp.json()?;
+            print_window(&w, resp.etag.as_deref(), &output)
+        }
+        WindowsCommand::End { id, output } => {
+            ensure_guid("window id", &id)?;
+            let resp = ctx
+                .client()?
+                .post_json(
+                    &format!("v2/alert-suspensions/windows/{id}:end"),
+                    &serde_json::json!({}),
+                    &WriteOptions::idempotent(),
+                )
+                .await?;
+            let w: Window = resp.json()?;
+            if !output.wants_json() {
+                eprintln!("Ended window {}; the alerts it held go out again", w.id);
+            }
+            print_window(&w, resp.etag.as_deref(), &output)
+        }
+        WindowsCommand::Delete { id, if_match } => {
+            ensure_guid("window id", &id)?;
+            let write = WriteOptions {
+                idempotency_key: None,
+                if_match,
+            };
+            ctx.client()?
+                .delete(&format!("v2/alert-suspensions/windows/{id}"), &write)
+                .await?;
+            eprintln!("Deleted window {id}");
+            Ok(())
+        }
+    }
+}
+
+fn print_window(w: &Window, etag: Option<&str>, out: &OutputArgs) -> Result<()> {
+    if out.wants_json() {
+        let mut v = serde_json::to_value(w)?;
+        if let Some(e) = etag {
+            v["etag"] = e.into();
+        }
+        return out.print_json(&v);
+    }
+    println!("Window:  {}", w.id);
+    println!("State:   {}", w.state);
+    println!("From:    {}", w.start);
+    println!("To:      {}", w.end);
+    println!("Scope:   {}", window_scope(w));
+    println!("Comment: {}", or_dash(w.comment.as_deref()));
+    if w.created_by.is_some() || w.created_at.is_some() {
+        println!(
+            "Created: {} by {}",
+            or_dash(w.created_at.as_deref()),
+            or_dash(w.created_by.as_deref())
+        );
+    }
+    if let Some(e) = etag {
+        println!("ETag:    {e}");
+    }
+    let n: usize = w.scenarios.iter().map(|s| s.steps.len()).sum();
+    if n > 0 {
+        println!();
+        let mut t = Table::new(["SCENARIO", "#", "STEP", "STEP ID", "CURRENT"]);
+        for sc in &w.scenarios {
+            for st in &sc.steps {
+                t.row([
+                    sc.scenario.name.clone(),
+                    st.order.to_string(),
+                    st.label.clone(),
+                    st.id.clone(),
+                    if st.current { "yes" } else { "no" }.to_string(),
+                ]);
+            }
+        }
+        t.print();
+    }
+    Ok(())
 }
 
 async fn groups(ctx: &Context, cmd: GroupsCommand) -> Result<()> {
@@ -1053,5 +1476,13 @@ mod tests {
         assert!(build_group("x".into(), "mail", Some("slack".into()), vec![G.into()]).is_err());
         assert!(build_group("x".into(), "mail", None, vec!["nope".into()]).is_err());
         assert!(build_group(" ".into(), "mail", None, vec![G.into()]).is_err());
+    }
+
+    #[test]
+    fn steps_are_scenario_slash_step() {
+        let s = parse_steps(&[format!("{G}/{G}")]).unwrap();
+        assert_eq!((s[0].scenario.as_str(), s[0].step.as_str()), (G, G));
+        assert!(parse_steps(&[G.to_string()]).is_err());
+        assert!(parse_steps(&[format!("{G}/nope")]).is_err());
     }
 }
