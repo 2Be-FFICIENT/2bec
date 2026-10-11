@@ -444,7 +444,7 @@ async fn pause(ctx: &Context, id: &str, yes: bool, out: OutputArgs) -> Result<()
 }
 
 /// Ask on the terminal; `false` without one.
-fn confirm(question: &str) -> Result<bool> {
+pub fn confirm(question: &str) -> Result<bool> {
     let stdin = std::io::stdin();
     if !stdin.is_terminal() {
         return Ok(false);

@@ -7,7 +7,6 @@ pub mod incidents;
 pub mod interruptions;
 pub mod me;
 pub mod metrics;
-#[expect(dead_code, reason = "neutralization types land with their commands")]
 pub mod neutralizations;
 pub mod page;
 pub mod planning;

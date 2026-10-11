@@ -70,6 +70,8 @@ enum Command {
     Interruptions(commands::interruptions::InterruptionsArgs),
     /// Availability, response times, voice quality and social figures over a period
     Metrics(commands::metrics::MetricsArgs),
+    /// Set runs apart from the indicators, and undo it
+    Neutralizations(commands::neutralizations::NeutralizationsArgs),
     /// Check that the API answers and print its version and latency
     Ping,
     /// Timeline, emergency stop and dated notes on the scenarios
@@ -142,6 +144,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Incidents(args) => commands::incidents::run(&ctx, args).await?,
         Command::Interruptions(args) => commands::interruptions::run(&ctx, args).await?,
         Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
+        Command::Neutralizations(args) => commands::neutralizations::run(&ctx, args).await?,
         Command::Planning(args) => commands::planning::run(&ctx, args).await?,
         Command::Reports(args) => commands::reports::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
