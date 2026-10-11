@@ -79,8 +79,9 @@ pub async fn run(ctx: &Context, args: AuthArgs) -> Result<()> {
             no_browser,
             json,
         } => {
-            // A piped stdin carries a key; a terminal means the browser flow.
-            if with_token || !std::io::stdin().is_terminal() {
+            // A piped stdin carries a key; a terminal means the browser
+            // flow. --no-browser is for headless use, so it wins over stdin.
+            if with_token || (!no_browser && !std::io::stdin().is_terminal()) {
                 login_with_key(ctx, json).await
             } else {
                 login_in_browser(ctx, no_browser, json).await
