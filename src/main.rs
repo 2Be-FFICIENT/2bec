@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod commands;
 mod config;
 mod http;
 
@@ -37,6 +38,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Log in, show or drop the credential used to call the API
+    Auth(commands::auth::AuthArgs),
     /// Check that the API answers and print its version and latency
     Ping,
 }
@@ -44,10 +47,11 @@ enum Command {
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(&cli).await {
+    let verbose = cli.verbose;
+    match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            report_error(&err, cli.verbose);
+            report_error(&err, verbose);
             api::error::exit_code_for(&err)
         }
     }
@@ -70,7 +74,7 @@ fn report_error(err: &anyhow::Error, verbose: bool) {
     }
 }
 
-async fn run(cli: &Cli) -> Result<()> {
+async fn run(cli: Cli) -> Result<()> {
     let config_dir = config::config_dir()?;
     let config = config::Config::load(&config_dir.join(config::CONFIG_FILE))?;
     let overrides = config::Overrides {
@@ -80,15 +84,17 @@ async fn run(cli: &Cli) -> Result<()> {
     let settings = config::Settings::resolve(&overrides, &config);
     let store = auth::store::FileStore::in_dir(&config_dir);
     let credential = auth::resolve(cli.token.as_deref(), &settings.profile, &store)?;
-    let client = http::Client::new(
-        &settings.api_url,
-        cli.timeout,
-        credential.as_ref().map(|c| c.token.as_str()),
-    )?;
+    let ctx = commands::Context {
+        settings,
+        store,
+        credential,
+        timeout: cli.timeout,
+    };
 
     match cli.command {
+        Command::Auth(args) => commands::auth::run(&ctx, args).await?,
         Command::Ping => {
-            let r = client.ping().await?;
+            let r = ctx.client()?.ping().await?;
             let name = serde_json::from_str::<serde_json::Value>(&r.body)
                 .ok()
                 .and_then(|v| {

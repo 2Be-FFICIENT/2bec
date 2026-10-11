@@ -6,6 +6,7 @@ pub mod token;
 use anyhow::Result;
 use std::fmt;
 
+use crate::api::error::{ApiError, Problem};
 use store::CredentialStore;
 
 /// Where the active token came from.
@@ -49,6 +50,17 @@ pub fn resolve(
     Ok(store.get(profile)?.map(|token| Credential {
         token,
         source: TokenSource::Stored,
+    }))
+}
+
+/// The error for "no credential at all", shaped like the API's own
+/// `api-key-required` answer so it exits with the auth code.
+pub fn missing_credential() -> ApiError {
+    ApiError::Auth(Box::new(Problem {
+        type_: "urn:pegas:problem:api-key-required".into(),
+        title: "Authentication required".into(),
+        status: 401,
+        ..Problem::default()
     }))
 }
 

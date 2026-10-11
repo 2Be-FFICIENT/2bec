@@ -4,11 +4,6 @@
 //! written with mode 0600. The [`CredentialStore`] trait keeps commands
 //! independent of the backend so an OS keyring can be added later.
 
-#![expect(
-    dead_code,
-    reason = "the write side is wired by `auth login` / `auth logout`"
-)]
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

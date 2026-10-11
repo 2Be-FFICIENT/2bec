@@ -1,8 +1,6 @@
 //! HTTP client for the API: bearer auth, problem+json errors, rate-limit
 //! headers and bounded retries on transient failures.
 
-#![expect(dead_code, reason = "first caller is `auth status` via GET /v2/me")]
-
 use anyhow::{Context, Result};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue, RETRY_AFTER, USER_AGENT};
 use serde::de::DeserializeOwned;
@@ -38,7 +36,6 @@ pub struct RateLimit {
 /// A successful answer with the headers commands care about.
 #[derive(Debug)]
 pub struct Response {
-    pub status: u16,
     pub body: String,
     pub rate_limit: Option<RateLimit>,
 }
@@ -122,11 +119,7 @@ impl Client {
         let retry_after = header_u64(r.headers(), RETRY_AFTER.as_str());
         let body = r.text().await?;
         if (200..300).contains(&status) {
-            Ok(Response {
-                status,
-                body,
-                rate_limit,
-            })
+            Ok(Response { body, rate_limit })
         } else {
             Err(ApiError::from_response(status, retry_after, &body))
         }
