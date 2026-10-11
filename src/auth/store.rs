@@ -12,13 +12,29 @@ use std::path::{Path, PathBuf};
 /// File name of the credential store inside the config directory.
 pub const STORE_FILE: &str = "hosts.toml";
 
-/// Backend-agnostic access to stored tokens, keyed by profile name.
+/// What is kept for a profile: an API key, or a person's OAuth tokens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StoredCredential {
+    ApiKey {
+        token: String,
+    },
+    OAuth {
+        access_token: String,
+        refresh_token: Option<String>,
+        /// Unix seconds when the access token expires.
+        expires_at: u64,
+        /// Authorization server the tokens came from.
+        issuer: String,
+    },
+}
+
+/// Backend-agnostic access to stored credentials, keyed by profile name.
 pub trait CredentialStore {
-    /// The stored token for `profile`, if any.
-    fn get(&self, profile: &str) -> Result<Option<String>>;
-    /// Store (or replace) the token for `profile`.
-    fn set(&self, profile: &str, token: &str) -> Result<()>;
-    /// Remove the token for `profile`; returns whether one existed.
+    /// The stored credential for `profile`, if any.
+    fn get(&self, profile: &str) -> Result<Option<StoredCredential>>;
+    /// Store (or replace) the credential for `profile`.
+    fn set(&self, profile: &str, credential: &StoredCredential) -> Result<()>;
+    /// Remove the credential for `profile`; returns whether one existed.
     fn remove(&self, profile: &str) -> Result<bool>;
     /// Human-readable location, shown by `auth status`.
     fn describe(&self) -> String;
@@ -30,9 +46,54 @@ struct Hosts {
     profiles: BTreeMap<String, Entry>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+/// On-disk shape: `token` for an API key, the other fields for OAuth.
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 struct Entry {
-    token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    access_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expires_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    issuer: Option<String>,
+}
+
+impl Entry {
+    fn from_credential(c: &StoredCredential) -> Self {
+        match c {
+            StoredCredential::ApiKey { token } => Self {
+                token: Some(token.clone()),
+                ..Self::default()
+            },
+            StoredCredential::OAuth {
+                access_token,
+                refresh_token,
+                expires_at,
+                issuer,
+            } => Self {
+                access_token: Some(access_token.clone()),
+                refresh_token: refresh_token.clone(),
+                expires_at: Some(*expires_at),
+                issuer: Some(issuer.clone()),
+                ..Self::default()
+            },
+        }
+    }
+
+    fn into_credential(self) -> Option<StoredCredential> {
+        if let Some(token) = self.token {
+            return Some(StoredCredential::ApiKey { token });
+        }
+        Some(StoredCredential::OAuth {
+            access_token: self.access_token?,
+            refresh_token: self.refresh_token,
+            expires_at: self.expires_at.unwrap_or(0),
+            issuer: self.issuer.unwrap_or_default(),
+        })
+    }
 }
 
 /// Credential store backed by a TOML file with owner-only permissions.
@@ -77,18 +138,19 @@ impl FileStore {
 }
 
 impl CredentialStore for FileStore {
-    fn get(&self, profile: &str) -> Result<Option<String>> {
-        Ok(self.load()?.profiles.remove(profile).map(|e| e.token))
+    fn get(&self, profile: &str) -> Result<Option<StoredCredential>> {
+        Ok(self
+            .load()?
+            .profiles
+            .remove(profile)
+            .and_then(Entry::into_credential))
     }
 
-    fn set(&self, profile: &str, token: &str) -> Result<()> {
+    fn set(&self, profile: &str, credential: &StoredCredential) -> Result<()> {
         let mut hosts = self.load()?;
-        hosts.profiles.insert(
-            profile.to_string(),
-            Entry {
-                token: token.to_string(),
-            },
-        );
+        hosts
+            .profiles
+            .insert(profile.to_string(), Entry::from_credential(credential));
         self.save(&hosts)
     }
 
@@ -140,6 +202,10 @@ mod tests {
         (dir, store)
     }
 
+    fn key(t: &str) -> StoredCredential {
+        StoredCredential::ApiKey { token: t.into() }
+    }
+
     #[test]
     fn missing_file_has_no_token() {
         let (_d, store) = temp_store();
@@ -150,21 +216,44 @@ mod tests {
     #[test]
     fn set_get_remove_round_trip() {
         let (_d, store) = temp_store();
-        store.set("prod", "2bef_live_abc").unwrap();
-        store.set("dev", "2bef_dev_xyz").unwrap();
-        assert_eq!(store.get("prod").unwrap().as_deref(), Some("2bef_live_abc"));
-        assert_eq!(store.get("dev").unwrap().as_deref(), Some("2bef_dev_xyz"));
+        store.set("prod", &key("2bef_live_abc")).unwrap();
+        store.set("dev", &key("2bef_dev_xyz")).unwrap();
+        assert_eq!(store.get("prod").unwrap(), Some(key("2bef_live_abc")));
+        assert_eq!(store.get("dev").unwrap(), Some(key("2bef_dev_xyz")));
         assert!(store.remove("prod").unwrap());
         assert_eq!(store.get("prod").unwrap(), None);
-        assert_eq!(store.get("dev").unwrap().as_deref(), Some("2bef_dev_xyz"));
+        assert_eq!(store.get("dev").unwrap(), Some(key("2bef_dev_xyz")));
     }
 
     #[test]
     fn set_replaces_existing_token() {
         let (_d, store) = temp_store();
-        store.set("prod", "old").unwrap();
-        store.set("prod", "new").unwrap();
-        assert_eq!(store.get("prod").unwrap().as_deref(), Some("new"));
+        store.set("prod", &key("old")).unwrap();
+        store.set("prod", &key("new")).unwrap();
+        assert_eq!(store.get("prod").unwrap(), Some(key("new")));
+    }
+
+    #[test]
+    fn oauth_tokens_round_trip_and_key_entries_stay_readable() {
+        let (dir, store) = temp_store();
+        let oauth = StoredCredential::OAuth {
+            access_token: "acc".into(),
+            refresh_token: Some("ref".into()),
+            expires_at: 1_800_000_000,
+            issuer: "https://id.example".into(),
+        };
+        store.set("prod", &oauth).unwrap();
+        assert_eq!(store.get("prod").unwrap(), Some(oauth));
+        let text = std::fs::read_to_string(dir.path().join(STORE_FILE)).unwrap();
+        assert!(!text.contains("\ntoken = "), "{text}");
+        assert!(text.contains("refresh_token = \"ref\""));
+        // A file written by an older version holds only `token`.
+        std::fs::write(
+            dir.path().join(STORE_FILE),
+            "[profiles.prod]\ntoken = \"2bef_live_x\"\n",
+        )
+        .unwrap();
+        assert_eq!(store.get("prod").unwrap(), Some(key("2bef_live_x")));
     }
 
     #[cfg(unix)]
@@ -172,7 +261,7 @@ mod tests {
     fn file_is_owner_only() {
         use std::os::unix::fs::PermissionsExt;
         let (dir, store) = temp_store();
-        store.set("prod", "secret").unwrap();
+        store.set("prod", &key("secret")).unwrap();
         let mode = std::fs::metadata(dir.path().join(STORE_FILE))
             .unwrap()
             .permissions()

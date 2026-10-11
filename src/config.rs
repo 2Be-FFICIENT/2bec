@@ -63,6 +63,17 @@ pub struct Profile {
     /// Base URL of the API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,
+    /// Authorization server for the browser login; discovered from the API
+    /// when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+    /// OAuth client id registered for this tool [default: 2bec].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_client_id: Option<String>,
+    /// `resource` (token audience) asked from the identity server
+    /// [default: https://api.2befficient.com].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_resource: Option<String>,
 }
 
 impl Config {
@@ -104,6 +115,23 @@ pub struct Settings {
     /// Base URL of the API, without a trailing slash.
     pub api_url: String,
     pub api_url_source: Source,
+    /// Authorization server, when the profile pins one.
+    pub issuer: Option<String>,
+    /// OAuth client id for the browser login.
+    pub oauth_client_id: String,
+    /// `resource` parameter sent to the identity server.
+    pub api_resource: String,
+}
+
+impl Settings {
+    /// Login parameters for the OAuth flow.
+    pub fn login_config(&self, no_browser: bool) -> crate::auth::oauth::LoginConfig {
+        crate::auth::oauth::LoginConfig {
+            client_id: self.oauth_client_id.clone(),
+            resource: self.api_resource.clone(),
+            no_browser,
+        }
+    }
 }
 
 impl Settings {
@@ -128,6 +156,15 @@ impl Settings {
             profile,
             api_url: api_url.trim_end_matches('/').to_string(),
             api_url_source,
+            issuer: from_file
+                .and_then(|p| p.issuer.clone())
+                .map(|i| i.trim_end_matches('/').to_string()),
+            oauth_client_id: from_file
+                .and_then(|p| p.oauth_client_id.clone())
+                .unwrap_or_else(|| crate::auth::oauth::DEFAULT_CLIENT_ID.to_string()),
+            api_resource: from_file
+                .and_then(|p| p.api_resource.clone())
+                .unwrap_or_else(|| DEFAULT_API_URL.to_string()),
         }
     }
 }
@@ -142,6 +179,7 @@ mod tests {
             name.to_string(),
             Profile {
                 api_url: Some(url.to_string()),
+                ..Profile::default()
             },
         );
         Config {
@@ -174,6 +212,7 @@ mod tests {
             "next".into(),
             Profile {
                 api_url: Some("https://api.next.example".into()),
+                ..Profile::default()
             },
         );
         let o = Overrides {
@@ -207,6 +246,21 @@ mod tests {
         let s = Settings::resolve(&o, &c);
         assert_eq!(s.profile, "missing");
         assert_eq!(s.api_url, DEFAULT_API_URL);
+    }
+
+    #[test]
+    fn oauth_settings_default_and_override() {
+        let s = Settings::resolve(&Overrides::default(), &Config::default());
+        assert_eq!(s.oauth_client_id, "2bec");
+        assert_eq!(s.api_resource, DEFAULT_API_URL);
+        assert_eq!(s.issuer, None);
+        let mut c = config_with(Some("dev"), "dev", "http://localhost:5152");
+        let p = c.profiles.get_mut("dev").unwrap();
+        p.issuer = Some("https://id.local/".into());
+        p.oauth_client_id = Some("2bec-dev".into());
+        let s = Settings::resolve(&Overrides::default(), &c);
+        assert_eq!(s.issuer.as_deref(), Some("https://id.local"));
+        assert_eq!(s.oauth_client_id, "2bec-dev");
     }
 
     #[test]
