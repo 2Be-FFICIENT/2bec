@@ -72,6 +72,8 @@ enum Command {
     Runs(commands::runs::RunsArgs),
     /// Browse the catalog of scenarios and their groups
     Scenarios(commands::scenarios::ScenariosArgs),
+    /// Webhooks: subscriptions of your URLs to events, secrets, deliveries
+    Webhooks(commands::webhooks::WebhooksArgs),
 }
 
 #[tokio::main]
@@ -132,6 +134,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
+        Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
         Command::Ping => {
             let r = ctx.client()?.ping().await?;
             let name = serde_json::from_str::<serde_json::Value>(&r.body)

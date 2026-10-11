@@ -17,5 +17,4 @@ pub mod runs;
 )]
 pub mod scenarios;
 pub mod scopes;
-#[expect(dead_code, reason = "webhook types land with their commands")]
 pub mod webhooks;

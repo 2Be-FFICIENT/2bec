@@ -5,6 +5,7 @@ pub mod auth;
 pub mod metrics;
 pub mod runs;
 pub mod scenarios;
+pub mod webhooks;
 
 use anyhow::Result;
 
