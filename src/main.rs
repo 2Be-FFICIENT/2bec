@@ -102,7 +102,7 @@ async fn run(cli: &Cli) -> Result<()> {
                 r.url, r.status, name, r.latency_ms
             );
             if r.status >= 400 {
-                anyhow::bail!("API answered HTTP {}", r.status);
+                return Err(api::error::ApiError::from_response(r.status, None, &r.body).into());
             }
         }
     }
