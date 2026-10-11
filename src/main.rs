@@ -3,7 +3,7 @@ mod http;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-/// 2bec - a small command-line tool with an HTTP backend.
+/// 2bec - command-line client for the 2Be-FFICIENT API.
 #[derive(Parser, Debug)]
 #[command(name = "2bec", version, about, long_about = None)]
 struct Cli {
