@@ -8,13 +8,29 @@ through the web interface.
 
 - Rust stable toolchain (managed via `rustup`; see `rust-toolchain.toml`)
 
+## Install
+
+Every tagged version is published on the GitHub releases page as a single
+static binary per platform (Linux x64/arm64 as musl builds, macOS x64/arm64,
+Windows x64/arm64), with the shell completions and manual pages in the same
+archive and a `SHA256SUMS` file next to them.
+
+```sh
+tar xzf 2bec-<version>-linux-x64.tar.gz
+install -m 755 2bec-<version>-linux-x64/2bec ~/.local/bin/
+```
+
 ## Build
 
 ```sh
 cargo build --release
 ```
 
-The binary is produced at `target/release/2bec`.
+The binary is produced at `target/release/2bec`. Add `--features keyring` to
+store credentials in the OS keyring (see [Configuration](#configuration)).
+
+To cut a release, bump `version` in `Cargo.toml`, commit, and push a tag
+`v<version>`; the tag must match the manifest or the pipeline stops.
 
 ## Run
 
