@@ -6,6 +6,8 @@ pub mod error;
 pub mod me;
 pub mod metrics;
 pub mod page;
+#[expect(dead_code, reason = "planning types land with their commands")]
+pub mod planning;
 pub mod reports;
 #[expect(
     dead_code,
