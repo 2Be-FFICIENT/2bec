@@ -26,6 +26,9 @@ use crate::http::DEFAULT_API_URL;
 /// Name of the profile used when neither flag, env nor file names one.
 pub const DEFAULT_PROFILE: &str = "default";
 
+/// File name of the config file inside [`config_dir`].
+pub const CONFIG_FILE: &str = "config.toml";
+
 /// Directory holding `config.toml` and the credential store.
 ///
 /// `TWOBEC_CONFIG_DIR` overrides it; otherwise it is `2bec` under the
@@ -63,11 +66,6 @@ pub struct Profile {
 }
 
 impl Config {
-    /// Path of the config file inside [`config_dir`].
-    pub fn path() -> Result<PathBuf> {
-        Ok(config_dir()?.join("config.toml"))
-    }
-
     /// Load the config file; a missing file is an empty config.
     pub fn load(path: &Path) -> Result<Self> {
         let text = match std::fs::read_to_string(path) {

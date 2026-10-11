@@ -35,7 +35,7 @@ variables, then the config file, then built-in defaults.
 |-------------|----------------------|-------------------------------|
 | `--profile` | `TWOBEC_PROFILE`     | `default_profile` in config, else `default` |
 | `--api-url` | `TWOBEC_API_URL`     | `https://api.2befficient.com` |
-| `--token`   | `TWOBEC_TOKEN`       | none                          |
+| `--token`   | `TWOBEC_TOKEN`       | token stored by `auth login`  |
 | `--timeout` |                      | `30` seconds                  |
 
 The config file is `~/.config/2bec/config.toml` (`$XDG_CONFIG_HOME` is
@@ -51,6 +51,10 @@ api_url = "https://api.2befficient.com"
 [profiles.dev]
 api_url = "http://localhost:5152"
 ```
+
+Tokens are kept per profile in `hosts.toml` in the same directory, written
+with owner-only permissions. `--token` / `TWOBEC_TOKEN` override the stored
+token for one invocation.
 
 ## License
 
