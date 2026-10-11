@@ -68,6 +68,8 @@ enum Command {
     Metrics(commands::metrics::MetricsArgs),
     /// Check that the API answers and print its version and latency
     Ping,
+    /// Saved reports, their data and PDFs, scheduled e-mails and deliveries
+    Reports(commands::reports::ReportsArgs),
     /// List and inspect scenario runs
     Runs(commands::runs::RunsArgs),
     /// Browse the catalog of scenarios and their groups
@@ -132,6 +134,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Alerts(args) => commands::alerts::run(&ctx, args).await?,
         Command::Auth(args) => commands::auth::run(&ctx, args).await?,
         Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
+        Command::Reports(args) => commands::reports::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
