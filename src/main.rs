@@ -3,7 +3,6 @@ mod auth;
 mod commands;
 mod config;
 mod http;
-#[expect(dead_code, reason = "first user is `runs list`")]
 mod output;
 
 use anyhow::Result;
@@ -15,23 +14,44 @@ use std::process::ExitCode;
 #[command(name = "2bec", version, about, long_about = None)]
 struct Cli {
     /// Configuration profile to use (see `config.toml`)
-    #[arg(long, env = "TWOBEC_PROFILE", global = true)]
+    #[arg(
+        long,
+        env = "TWOBEC_PROFILE",
+        global = true,
+        help_heading = "Global options"
+    )]
     profile: Option<String>,
 
     /// Base URL of the API [default: https://api.2befficient.com]
-    #[arg(long, env = "TWOBEC_API_URL", global = true)]
+    #[arg(
+        long,
+        env = "TWOBEC_API_URL",
+        global = true,
+        help_heading = "Global options"
+    )]
     api_url: Option<String>,
 
     /// Request timeout in seconds
-    #[arg(long, default_value_t = 30, global = true)]
+    #[arg(
+        long,
+        default_value_t = 30,
+        global = true,
+        help_heading = "Global options"
+    )]
     timeout: u64,
 
     /// Show error details (cause chain, trace id)
-    #[arg(long, short = 'v', global = true)]
+    #[arg(long, short = 'v', global = true, help_heading = "Global options")]
     verbose: bool,
 
     /// API token; overrides the one stored by `auth login`
-    #[arg(long, env = "TWOBEC_TOKEN", hide_env_values = true, global = true)]
+    #[arg(
+        long,
+        env = "TWOBEC_TOKEN",
+        hide_env_values = true,
+        global = true,
+        help_heading = "Global options"
+    )]
     token: Option<String>,
 
     #[command(subcommand)]
@@ -44,6 +64,8 @@ enum Command {
     Auth(commands::auth::AuthArgs),
     /// Check that the API answers and print its version and latency
     Ping,
+    /// List and inspect scenario runs
+    Runs(commands::runs::RunsArgs),
 }
 
 #[tokio::main]
@@ -95,6 +117,7 @@ async fn run(cli: Cli) -> Result<()> {
 
     match cli.command {
         Command::Auth(args) => commands::auth::run(&ctx, args).await?,
+        Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Ping => {
             let r = ctx.client()?.ping().await?;
             let name = serde_json::from_str::<serde_json::Value>(&r.body)
