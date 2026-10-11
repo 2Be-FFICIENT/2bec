@@ -3,6 +3,7 @@
 pub mod alerts;
 pub mod auth;
 pub mod metrics;
+pub mod planning;
 pub mod reports;
 pub mod runs;
 pub mod scenarios;
