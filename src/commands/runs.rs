@@ -5,7 +5,10 @@ use clap::{Args, Subcommand};
 
 use super::Context;
 use crate::api::page::{Fetch, fetch_items};
-use crate::api::runs::{self, Artifact, Diagnosis, Run, RunComment, RunListItem, RunTags};
+use crate::api::runs::{
+    self, Artifact, Diagnosis, Run, RunComment, RunListItem, RunRequest, RunRequestState,
+    RunRequestWrite, RunTags,
+};
 use crate::http::WriteOptions;
 use crate::output::{OutputArgs, Table, or_dash, short_time};
 use std::io::Read;
@@ -100,6 +103,89 @@ Examples:
         id: String,
         /// Tag id to detach
         tag: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Ask for an immediate run of a scenario (needs runs:request)
+    #[command(
+        alias = "request",
+        after_help = "\
+Examples:
+  2bec runs trigger 7f3c...
+  2bec runs trigger 7f3c... --var USER=bob --var ENV=staging --comment \"smoke\"
+  2bec runs trigger 7f3c... --wait --json
+
+Check what the scenario accepts and the remaining quota first with
+`2bec runs requests state <scenario>`. --wait polls the request until it is
+done, failed or refused."
+    )]
+    Trigger {
+        /// Scenario id
+        scenario: String,
+        /// Variable for the run, NAME=VALUE (repeatable, at most 20)
+        #[arg(long = "var", value_name = "NAME=VALUE")]
+        vars: Vec<String>,
+        /// Free text attached to the request (at most 500 characters)
+        #[arg(long, value_name = "TEXT")]
+        comment: Option<String>,
+        /// Poll the request until it finishes
+        #[arg(long)]
+        wait: bool,
+        /// Give up waiting after this many seconds
+        #[arg(long, default_value_t = 600, value_name = "SECS", requires = "wait")]
+        wait_timeout: u64,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Inspect immediate-run requests (needs runs:request)
+    Requests(RequestsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct RequestsArgs {
+    #[command(subcommand)]
+    command: RequestsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum RequestsCommand {
+    /// List run requests, newest first (last 7 days by default)
+    List {
+        /// Only requests for this scenario id
+        #[arg(long, value_name = "ID")]
+        scenario: Option<String>,
+        /// Start of the range, RFC 3339 (inclusive)
+        #[arg(long, value_name = "TIME", conflicts_with = "period")]
+        from: Option<String>,
+        /// End of the range, RFC 3339 (exclusive)
+        #[arg(long, value_name = "TIME", conflicts_with = "period")]
+        to: Option<String>,
+        /// Named period instead of --from/--to (e.g. today, last30d)
+        #[arg(long, value_name = "PERIOD")]
+        period: Option<String>,
+        /// IANA time zone for periods [default: Europe/Paris]
+        #[arg(long, value_name = "ZONE")]
+        tz: Option<String>,
+        /// Maximum number of requests to print
+        #[arg(long, default_value_t = 50, conflicts_with = "all")]
+        limit: u64,
+        /// Fetch every matching request
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Show one run request and its current stage
+    Get {
+        /// Run request id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Whether a scenario can be triggered now: quota, variables, recent requests
+    State {
+        /// Scenario id
+        scenario: String,
         #[command(flatten)]
         output: OutputArgs,
     },
@@ -298,7 +384,280 @@ pub async fn run(ctx: &Context, args: RunsArgs) -> Result<()> {
         RunsCommand::Comments(args) => comments(ctx, args.command).await,
         RunsCommand::Tag { id, tags, output } => tag(ctx, &id, &tags, output).await,
         RunsCommand::Untag { id, tag, output } => untag(ctx, &id, &tag, output).await,
+        RunsCommand::Trigger {
+            scenario,
+            vars,
+            comment,
+            wait,
+            wait_timeout,
+            output,
+        } => trigger(ctx, &scenario, &vars, comment, wait, wait_timeout, output).await,
+        RunsCommand::Requests(args) => requests(ctx, args.command).await,
     }
+}
+
+async fn trigger(
+    ctx: &Context,
+    scenario: &str,
+    vars: &[String],
+    comment: Option<String>,
+    wait: bool,
+    wait_timeout: u64,
+    out: OutputArgs,
+) -> Result<()> {
+    ensure_guid("scenario id", scenario)?;
+    let body = build_run_request(vars, comment)?;
+    let client = ctx.client()?;
+    let mut req: RunRequest = client
+        .post_json(
+            &format!("v2/scenarios/{scenario}/run-requests"),
+            &body,
+            &WriteOptions::idempotent(),
+        )
+        .await?
+        .json()?;
+    if !out.json {
+        println!(
+            "Requested run {} of {}: {}",
+            req.id,
+            req.scenario.name,
+            outcome_line(&req)
+        );
+        for w in &req.warnings {
+            eprintln!("warning: {w}");
+        }
+    }
+    if wait && req.outcome == "accepted" {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait_timeout);
+        let mut last_stage = req.stage.clone();
+        loop {
+            if is_final(&req) {
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                bail!(
+                    "still {} after {wait_timeout}s; poll with `2bec runs requests get {}`",
+                    req.stage.as_deref().unwrap_or("pending"),
+                    req.id
+                );
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            req = client
+                .get(&format!("v2/run-requests/{}", req.id))
+                .await?
+                .json()?;
+            if !out.json && req.stage != last_stage {
+                eprintln!("  {}", outcome_line(&req));
+                last_stage = req.stage.clone();
+            }
+        }
+    }
+    if out.json {
+        return crate::output::print_json(&req);
+    }
+    if wait {
+        println!("Final: {}", outcome_line(&req));
+    }
+    Ok(())
+}
+
+fn is_final(req: &RunRequest) -> bool {
+    req.outcome != "accepted" || matches!(req.stage.as_deref(), Some("done" | "forbiddenView"))
+}
+
+fn outcome_line(req: &RunRequest) -> String {
+    let mut s = req.outcome.clone();
+    if let Some(stage) = &req.stage {
+        s.push_str(&format!(" ({stage})"));
+    }
+    if let Some(e) = &req.error {
+        s.push_str(&format!(": {e}"));
+    }
+    s
+}
+
+/// Validate `--var` and `--comment` the way the API does, before sending.
+fn build_run_request(vars: &[String], comment: Option<String>) -> Result<RunRequestWrite> {
+    let mut body = RunRequestWrite::default();
+    if vars.len() > 20 {
+        bail!("at most 20 --var values");
+    }
+    for v in vars {
+        let Some((name, value)) = v.split_once('=') else {
+            bail!("--var `{v}` must be NAME=VALUE");
+        };
+        let first_ok = name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+        let rest_ok = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !first_ok || !rest_ok || name.len() > 64 {
+            bail!(
+                "--var name `{name}` must match [A-Za-z_][A-Za-z0-9_]* and be at most 64 characters"
+            );
+        }
+        if name.starts_with("SCHEDULER_") {
+            bail!("--var name `{name}` is reserved (SCHEDULER_ prefix)");
+        }
+        if value.chars().count() > 4000 || value.chars().any(char::is_control) {
+            bail!(
+                "--var `{name}` value must be at most 4000 characters without control characters"
+            );
+        }
+        body.variables.insert(name.to_string(), value.to_string());
+    }
+    if let Some(c) = comment {
+        let c = c.trim().to_string();
+        if c.chars().count() > 500 {
+            bail!("--comment must be at most 500 characters");
+        }
+        if !c.is_empty() {
+            body.comment = Some(c);
+        }
+    }
+    Ok(body)
+}
+
+async fn requests(ctx: &Context, cmd: RequestsCommand) -> Result<()> {
+    match cmd {
+        RequestsCommand::List {
+            scenario,
+            from,
+            to,
+            period,
+            tz,
+            limit,
+            all,
+            output,
+        } => {
+            let filter = RunFilter {
+                scenarios: scenario.into_iter().collect(),
+                from,
+                to,
+                period,
+                tz,
+                ..RunFilter::default()
+            };
+            let query = filter.query()?;
+            if !all && limit == 0 {
+                bail!("--limit must be at least 1");
+            }
+            let fetch = if all { Fetch::All } else { Fetch::Limit(limit) };
+            let page =
+                fetch_items::<RunRequest>(&ctx.client()?, "v2/run-requests", &query, fetch).await?;
+            output.print(&page.items, "No run requests in this period", || {
+                let mut t = Table::new(["ID", "REQUESTED", "SCENARIO", "OUTCOME", "STAGE", "BY"]);
+                for r in &page.items {
+                    t.row([
+                        r.id.clone(),
+                        short_time(&r.requested_at),
+                        r.scenario.name.clone(),
+                        r.outcome.clone(),
+                        or_dash(r.stage.as_deref()),
+                        or_dash(r.requested_by.as_deref()),
+                    ]);
+                }
+                t
+            })
+        }
+        RequestsCommand::Get { id, output } => {
+            ensure_guid("run request id", &id)?;
+            let r: RunRequest = ctx
+                .client()?
+                .get(&format!("v2/run-requests/{id}"))
+                .await?
+                .json()?;
+            if output.json {
+                return crate::output::print_json(&r);
+            }
+            println!("Request:   {}", r.id);
+            println!("Scenario:  {} ({})", r.scenario.name, r.scenario.id);
+            println!(
+                "Requested: {} by {}",
+                r.requested_at,
+                or_dash(r.requested_by.as_deref())
+            );
+            println!("Outcome:   {}", outcome_line(&r));
+            println!("Comment:   {}", or_dash(r.comment.as_deref()));
+            for (k, v) in &r.variables {
+                println!("Variable:  {k}={v}");
+            }
+            for w in &r.warnings {
+                println!("Warning:   {w}");
+            }
+            Ok(())
+        }
+        RequestsCommand::State { scenario, output } => {
+            ensure_guid("scenario id", &scenario)?;
+            let st: RunRequestState = ctx
+                .client()?
+                .get(&format!("v2/scenarios/{scenario}/run-requests"))
+                .await?
+                .json()?;
+            if output.json {
+                return crate::output::print_json(&st);
+            }
+            println!("Scenario:    {} ({})", st.scenario.name, st.scenario.id);
+            println!(
+                "Can trigger: {}{}",
+                yes_no(st.schedulable && st.quota.allowed),
+                st.not_schedulable_reason
+                    .as_deref()
+                    .map_or(String::new(), |r| format!(" ({r})"))
+            );
+            println!(
+                "Active:      {} (job {})",
+                yes_no(st.active),
+                yes_no(st.job_active)
+            );
+            if st.paused {
+                println!("Paused:      since {}", or_dash(st.paused_since.as_deref()));
+            }
+            if st.in_off_period {
+                println!(
+                    "Off period:  until {}",
+                    or_dash(st.off_period_end.as_deref())
+                );
+            }
+            println!(
+                "Quota:       {} of {} left in {} min (min interval {} min){}",
+                st.quota.remaining,
+                st.quota.limit,
+                st.quota.window_minutes,
+                st.quota.min_interval_minutes,
+                st.quota
+                    .next_allowed_at
+                    .as_deref()
+                    .map_or(String::new(), |t| format!(", next allowed {t}"))
+            );
+            if !st.variables.is_empty() {
+                println!();
+                let mut t = Table::new(["VARIABLE", "DEFAULT"]);
+                for v in &st.variables {
+                    t.row([v.name.clone(), or_dash(v.default_value.as_deref())]);
+                }
+                t.print();
+            }
+            if !st.recent.is_empty() {
+                println!();
+                let mut t = Table::new(["ID", "REQUESTED", "OUTCOME", "STAGE"]);
+                for r in &st.recent {
+                    t.row([
+                        r.id.clone(),
+                        short_time(&r.requested_at),
+                        r.outcome.clone(),
+                        or_dash(r.stage.as_deref()),
+                    ]);
+                }
+                t.print();
+            }
+            Ok(())
+        }
+    }
+}
+
+fn yes_no(b: bool) -> &'static str {
+    if b { "yes" } else { "no" }
 }
 
 async fn comments(ctx: &Context, cmd: CommentsCommand) -> Result<()> {
@@ -823,6 +1182,20 @@ mod tests {
             ..RunFilter::default()
         };
         assert!(f.query().unwrap_err().to_string().contains("--scenario"));
+    }
+
+    #[test]
+    fn run_request_body_is_validated() {
+        let b = build_run_request(&["USER=bob".into()], Some(" smoke ".into())).unwrap();
+        assert_eq!(b.variables["USER"], "bob");
+        assert_eq!(b.comment.as_deref(), Some("smoke"));
+        assert!(build_run_request(&["novalue".into()], None).is_err());
+        assert!(build_run_request(&["1bad=x".into()], None).is_err());
+        assert!(build_run_request(&["SCHEDULER_X=1".into()], None).is_err());
+        assert!(build_run_request(&["A=b\u{7}".into()], None).is_err());
+        assert!(build_run_request(&[], Some("x".repeat(501))).is_err());
+        let many: Vec<String> = (0..21).map(|i| format!("V{i}=1")).collect();
+        assert!(build_run_request(&many, None).is_err());
     }
 
     #[test]
