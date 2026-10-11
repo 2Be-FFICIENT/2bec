@@ -6,7 +6,10 @@ use clap::{Args, Subcommand};
 
 use super::Context;
 use super::runs::ensure_guid;
-use crate::api::alerts::{self, Alert, Channel, Notification, TestSent, TestWrite};
+use crate::api::alerts::{
+    self, Alert, Channel, Group, GroupWrite, Notification, RecipientEntry, RecipientMuted,
+    TestSent, TestWrite,
+};
 use crate::api::page::{Fetch, Page, fetch_items};
 use crate::http::WriteOptions;
 use crate::output::{OutputArgs, Table, or_dash, short_time};
@@ -166,6 +169,112 @@ on the mail channel only; a recipient id comes from `alerts recipients list`.")]
         #[command(flatten)]
         output: OutputArgs,
     },
+    /// The recipient groups the alerts are sent to
+    Groups(GroupsArgs),
+    /// The subscribers alerts can reach, and their mute switch
+    Recipients(RecipientsArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct GroupsArgs {
+    #[command(subcommand)]
+    command: GroupsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum GroupsCommand {
+    /// List the recipient groups: channel, members, how many alerts use each
+    List {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Show one group, its members and its ETag
+    Get {
+        /// Group id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Create a group on a channel with its members (needs alerts:write)
+    #[command(after_help = "\
+Examples:
+  2bec alerts groups create --name \"On call\" --channel sms --member 1a2b... --member 3c4d...
+  2bec alerts groups create --name Ops --channel hook --hook-type slack --member 1a2b...
+
+Channels and hook types: `2bec alerts channels`. Member ids: `2bec alerts
+recipients list`. At most 200 members.")]
+    Create {
+        /// Group name
+        #[arg(long, value_name = "NAME")]
+        name: String,
+        /// Channel: mail, sms, voice, signal or hook
+        #[arg(long, value_name = "CHANNEL")]
+        channel: String,
+        /// Kind of hook, for the hook channel
+        #[arg(long, value_name = "TYPE")]
+        hook_type: Option<String>,
+        /// Recipient id (repeatable)
+        #[arg(long = "member", value_name = "ID", required = true)]
+        members: Vec<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Change a group with a JSON merge patch (needs alerts:write)
+    #[command(after_help = "\
+Examples:
+  2bec alerts groups edit 7f3c... '{\"name\": \"On call (night)\"}'
+  2bec alerts groups edit 7f3c... '{\"members\": [\"1a2b...\", \"3c4d...\"]}' --if-match W/\"3\"
+
+`members` is the whole list. The alerts sending to the group follow it.")]
+    Edit {
+        /// Group id
+        id: String,
+        /// JSON merge patch; `-` for stdin, `@file` for a file
+        body: String,
+        /// Only update if the group still has this ETag (from `groups get`)
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Delete a group no alert sends to any more (needs alerts:write)
+    #[command(alias = "rm")]
+    Delete {
+        /// Group id
+        id: String,
+        /// Only delete if the group still has this ETag
+        #[arg(long, value_name = "ETAG")]
+        if_match: Option<String>,
+    },
+}
+
+#[derive(Args, Debug)]
+pub struct RecipientsArgs {
+    #[command(subcommand)]
+    command: RecipientsCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum RecipientsCommand {
+    /// List the subscribers of the space: contacts on file, mute state, groups
+    List {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Hold every alert to a person until unmuted (needs alerts:write)
+    Mute {
+        /// Recipient id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Let the alerts reach a person again (needs alerts:write)
+    Unmute {
+        /// Recipient id
+        id: String,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
 }
 
 pub async fn run(ctx: &Context, args: AlertsArgs) -> Result<()> {
@@ -222,7 +331,222 @@ pub async fn run(ctx: &Context, args: AlertsArgs) -> Result<()> {
             let body = build_test(&channel, recipient, mails, message, mail_subject)?;
             test(ctx, &body, output).await
         }
+        AlertsCommand::Groups(args) => groups(ctx, args.command).await,
+        AlertsCommand::Recipients(args) => recipients(ctx, args.command).await,
     }
+}
+
+async fn groups(ctx: &Context, cmd: GroupsCommand) -> Result<()> {
+    match cmd {
+        GroupsCommand::List { output } => {
+            let page: Page<Group> = ctx.client()?.get("v2/alert-groups").await?.json()?;
+            output.print(&page.items, "No recipient group", || {
+                let mut t =
+                    Table::new(["ID", "NAME", "CHANNEL", "DELIVERABLE", "MEMBERS", "ALERTS"]);
+                for g in &page.items {
+                    t.row([
+                        g.id.clone(),
+                        g.name.clone(),
+                        channel_label(&g.channel, g.hook_type.as_deref()),
+                        yes_no(g.deliverable).to_string(),
+                        g.members.len().to_string(),
+                        g.alerts.to_string(),
+                    ]);
+                }
+                t
+            })
+        }
+        GroupsCommand::Get { id, output } => {
+            ensure_guid("group id", &id)?;
+            let resp = ctx.client()?.get(&format!("v2/alert-groups/{id}")).await?;
+            let g: Group = resp.json()?;
+            print_group(&g, resp.etag.as_deref(), &output)
+        }
+        GroupsCommand::Create {
+            name,
+            channel,
+            hook_type,
+            members,
+            output,
+        } => {
+            let body = build_group(name, &channel, hook_type, members)?;
+            let resp = ctx
+                .client()?
+                .post_json("v2/alert-groups", &body, &WriteOptions::idempotent())
+                .await?;
+            let g: Group = resp.json()?;
+            if !output.wants_json() {
+                eprintln!("Created group {} ({})", g.name, g.id);
+            }
+            print_group(&g, resp.etag.as_deref(), &output)
+        }
+        GroupsCommand::Edit {
+            id,
+            body,
+            if_match,
+            output,
+        } => {
+            ensure_guid("group id", &id)?;
+            let body = super::read_json_body(&body)?;
+            let write = WriteOptions {
+                idempotency_key: None,
+                if_match,
+            };
+            let resp = ctx
+                .client()?
+                .patch_merge(&format!("v2/alert-groups/{id}"), &body, &write)
+                .await?;
+            let g: Group = resp.json()?;
+            print_group(&g, resp.etag.as_deref(), &output)
+        }
+        GroupsCommand::Delete { id, if_match } => {
+            ensure_guid("group id", &id)?;
+            let write = WriteOptions {
+                idempotency_key: None,
+                if_match,
+            };
+            ctx.client()?
+                .delete(&format!("v2/alert-groups/{id}"), &write)
+                .await?;
+            eprintln!("Deleted group {id}");
+            Ok(())
+        }
+    }
+}
+
+fn channel_label(channel: &str, hook_type: Option<&str>) -> String {
+    match hook_type {
+        Some(h) => format!("{channel} ({h})"),
+        None => channel.to_string(),
+    }
+}
+
+/// Validate the group flags the way the API does, before sending.
+fn build_group(
+    name: String,
+    channel: &str,
+    hook_type: Option<String>,
+    members: Vec<String>,
+) -> Result<GroupWrite> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        bail!("--name is empty");
+    }
+    let channel = canonical(
+        "--channel",
+        channel,
+        &["mail", "sms", "voice", "signal", "hook"],
+    )?;
+    if channel == "hook" && hook_type.is_none() {
+        bail!("--hook-type is needed on the hook channel (see `2bec alerts channels`)");
+    }
+    if channel != "hook" && hook_type.is_some() {
+        bail!("--hook-type only applies to the hook channel");
+    }
+    if members.len() > 200 {
+        bail!("at most 200 --member values");
+    }
+    for m in &members {
+        ensure_guid("--member", m)?;
+    }
+    Ok(GroupWrite {
+        name,
+        channel,
+        hook_type,
+        members,
+    })
+}
+
+fn print_group(g: &Group, etag: Option<&str>, out: &OutputArgs) -> Result<()> {
+    if out.wants_json() {
+        let mut v = serde_json::to_value(g)?;
+        if let Some(e) = etag {
+            v["etag"] = e.into();
+        }
+        return out.print_json(&v);
+    }
+    println!("Group:       {}", g.id);
+    println!("Name:        {}", g.name);
+    println!(
+        "Channel:     {}",
+        channel_label(&g.channel, g.hook_type.as_deref())
+    );
+    println!("Deliverable: {}", yes_no(g.deliverable));
+    println!("Alerts:      {} send to this group", g.alerts);
+    if let Some(e) = etag {
+        println!("ETag:        {e}");
+    }
+    if !g.members.is_empty() {
+        println!();
+        let mut t = Table::new(["MEMBER ID", "NAME", "MUTED"]);
+        for m in &g.members {
+            t.row([
+                m.id.clone(),
+                m.name.clone(),
+                if m.muted { "yes" } else { "" }.to_string(),
+            ]);
+        }
+        t.print();
+    }
+    Ok(())
+}
+
+async fn recipients(ctx: &Context, cmd: RecipientsCommand) -> Result<()> {
+    match cmd {
+        RecipientsCommand::List { output } => {
+            let page: Page<RecipientEntry> =
+                ctx.client()?.get("v2/alert-recipients").await?.json()?;
+            output.print(&page.items, "No subscriber in the space", || {
+                let mut t =
+                    Table::new(["ID", "NAME", "LOGIN", "MAIL", "MOBILE", "MUTED", "GROUPS"]);
+                for r in &page.items {
+                    t.row([
+                        r.id.clone(),
+                        r.name.clone(),
+                        r.login.clone(),
+                        yes_no(r.has_mail).to_string(),
+                        yes_no(r.has_mobile).to_string(),
+                        if r.muted { "yes" } else { "" }.to_string(),
+                        r.groups
+                            .iter()
+                            .map(|g| g.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ]);
+                }
+                t
+            })
+        }
+        RecipientsCommand::Mute { id, output } => set_muted(ctx, &id, true, output).await,
+        RecipientsCommand::Unmute { id, output } => set_muted(ctx, &id, false, output).await,
+    }
+}
+
+async fn set_muted(ctx: &Context, id: &str, muted: bool, out: OutputArgs) -> Result<()> {
+    ensure_guid("recipient id", id)?;
+    let action = if muted { "mute" } else { "unmute" };
+    let r: RecipientMuted = ctx
+        .client()?
+        .post_json(
+            &format!("v2/alert-recipients/{id}:{action}"),
+            &serde_json::json!({}),
+            &WriteOptions::idempotent(),
+        )
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&r);
+    }
+    println!(
+        "{} is {}",
+        r.name,
+        if r.muted {
+            "muted: no alert reaches them until unmuted"
+        } else {
+            "unmuted: alerts reach them again"
+        }
+    );
+    Ok(())
 }
 
 async fn create(ctx: &Context, body: &str, out: OutputArgs) -> Result<()> {
@@ -719,5 +1043,15 @@ mod tests {
         assert!(build_test("fax", Some(G.into()), vec![], None, None).is_err());
         let many: Vec<String> = (0..6).map(|i| format!("a{i}@b.c")).collect();
         assert!(build_test("mail", None, many, None, None).is_err());
+    }
+
+    #[test]
+    fn group_body_is_validated() {
+        let g = build_group(" Ops ".into(), "SMS", None, vec![G.into()]).unwrap();
+        assert_eq!((g.name.as_str(), g.channel.as_str()), ("Ops", "sms"));
+        assert!(build_group("x".into(), "hook", None, vec![G.into()]).is_err());
+        assert!(build_group("x".into(), "mail", Some("slack".into()), vec![G.into()]).is_err());
+        assert!(build_group("x".into(), "mail", None, vec!["nope".into()]).is_err());
+        assert!(build_group(" ".into(), "mail", None, vec![G.into()]).is_err());
     }
 }
