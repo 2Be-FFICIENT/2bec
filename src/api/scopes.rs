@@ -53,6 +53,23 @@ const TABLE: &[(&str, &str, &str)] = &[
     ),
     ("DELETE", "v2/alert-suspensions/windows/{}", "alerts:write"),
     ("GET", "v2/metrics/availability", "metrics:read"),
+    ("GET", "v2/metrics/availability/pdf", "reports:read"),
+    ("GET", "v2/metrics/response-times/pdf", "reports:read"),
+    ("GET", "v2/metrics/voice-quality/pdf", "reports:read"),
+    ("GET", "v2/reports", "reports:read"),
+    ("POST", "v2/reports", "reports:write"),
+    ("GET", "v2/reports/{}", "reports:read"),
+    ("PATCH", "v2/reports/{}", "reports:write"),
+    ("DELETE", "v2/reports/{}", "reports:write"),
+    ("GET", "v2/reports/{}/data", "reports:read"),
+    ("GET", "v2/reports/{}/pdf", "reports:read"),
+    ("GET", "v2/report-schedules", "reports:read"),
+    ("POST", "v2/report-schedules", "reports:write"),
+    ("GET", "v2/report-schedules/{}", "reports:read"),
+    ("PATCH", "v2/report-schedules/{}", "reports:write"),
+    ("DELETE", "v2/report-schedules/{}", "reports:write"),
+    ("POST", "v2/report-schedules/{}:send", "reports:write"),
+    ("GET", "v2/report-deliveries", "reports:read"),
     ("GET", "v2/metrics/response-times", "metrics:read"),
     ("GET", "v2/metrics/voice-quality", "metrics:read"),
     ("GET", "v2/metrics/social", "metrics:read"),
@@ -168,6 +185,14 @@ mod tests {
         assert_eq!(
             required("POST", "v2/webhooks/abc/deliveries/def:redeliver"),
             Some("webhooks:write")
+        );
+        assert_eq!(
+            required("GET", "v2/metrics/availability/pdf?lang=fr"),
+            Some("reports:read")
+        );
+        assert_eq!(
+            required("POST", "v2/report-schedules/abc:send"),
+            Some("reports:write")
         );
         assert_eq!(required("POST", "v2/scenarios/:pause"), None);
         assert_eq!(required("GET", "v2/unknown"), None);
