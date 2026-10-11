@@ -4,10 +4,6 @@
 pub mod alerts;
 pub mod error;
 pub mod me;
-#[expect(
-    dead_code,
-    reason = "per-scenario metrics types land with their commands"
-)]
 pub mod metrics;
 pub mod page;
 #[expect(
