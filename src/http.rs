@@ -210,8 +210,18 @@ impl Client {
         path: &str,
         sink: &mut dyn Write,
     ) -> Result<(Option<String>, u64), ApiError> {
+        self.download_with(path, &[], sink).await
+    }
+
+    /// `download` with query parameters (URL-encoded by reqwest).
+    pub async fn download_with(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        sink: &mut dyn Write,
+    ) -> Result<(Option<String>, u64), ApiError> {
         let url = self.url(path);
-        let mut r = self.inner.get(&url).send().await?;
+        let mut r = self.inner.get(&url).query(query).send().await?;
         let status = r.status().as_u16();
         if !(200..300).contains(&status) {
             let retry_after = header_u64(r.headers(), RETRY_AFTER.as_str());
