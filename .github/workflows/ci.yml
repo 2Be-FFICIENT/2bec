@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUSTFLAGS: -D warnings
+  RUST_BACKTRACE: short
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Format & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    name: Test (${{ matrix.name }})
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: macos-x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: windows-arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: cargo test
+        run: cargo test --locked --target ${{ matrix.target }}
+      - name: cargo build --release
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Smoke test the binary
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/2bec"
+          [[ "${{ runner.os }}" == "Windows" ]] && bin="$bin.exe"
+          "$bin" --version
+          "$bin" --help
+          ls -l "$bin"
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: 2bec-${{ matrix.name }}
+          path: |
+            target/${{ matrix.target }}/release/2bec
+            target/${{ matrix.target }}/release/2bec.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  ci-ok:
+    name: CI passed
+    if: always()
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        run: |
+          echo '${{ toJSON(needs) }}'
+          [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "false" ]]
