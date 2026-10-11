@@ -34,7 +34,8 @@ Administration > API access (the secret is shown once).
 
 ```sh
 2bec auth login                 # opens the browser, logs you in as yourself
-2bec auth login --no-browser    # prints the URL to open elsewhere (SSH, containers)
+2bec auth login --device        # shows a code to enter on any device (SSH, containers)
+2bec auth login --no-browser    # prints the loopback URL, for `ssh -L` port forwarding
 2bec auth login --with-token    # prompts for an API key (hidden input)
 echo "$KEY" | 2bec auth login   # reads an API key from stdin, for scripts
 2bec auth status                # who you are, scopes, expiry, rate limit
@@ -44,8 +45,10 @@ echo "$KEY" | 2bec auth login   # reads an API key from stdin, for scripts
 ```
 
 The browser login uses the authorization code flow with PKCE against the
-2Be-FFICIENT identity server (client id `2bec`, loopback redirect). Access
-tokens last an hour and are renewed automatically from the refresh token
+2Be-FFICIENT identity server (client id `2bec`, loopback redirect). Over
+SSH without a display, `auth login` switches to the device flow by itself:
+open the URL it prints on any device, enter the code, and the CLI picks the
+login up within a few seconds. Access tokens last an hour and are renewed automatically from the refresh token
 for 30 days, after which you log in again. Person logins ignore
 `Idempotency-Key` and never get `webhooks:write`; use an API key for those.
 
