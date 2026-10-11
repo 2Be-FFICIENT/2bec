@@ -80,6 +80,23 @@ Writes carry an `Idempotency-Key`, so a retried `comments add`, `tag` or
 against lost updates with the ETag shown by `comments get`. Text arguments
 accept `-` for stdin and `@file`.
 
+## Scenarios
+
+```sh
+2bec scenarios list                                  # the catalog, by name
+2bec scenarios list --kind transaction --active --json
+2bec scenarios list --group <id> -q login            # one group, words of the name
+2bec scenarios get <scenario>                        # steps, thresholds, monitoring, target
+2bec scenarios versions <scenario> --months 3        # saves of the script, newest first
+2bec scenarios calendar <scenario> --from … --to …   # cadence, hours, interruption windows
+2bec scenarios download-doc <scenario> -o doc.pdf    # alias doc; --technical; -o - for stdout
+2bec scenarios groups list / get <group>
+```
+
+Scenario ids are what `runs list --scenario` and `runs trigger` take.
+Versions, calendar and documentation exist for transaction scenarios only;
+the API answers `social-scenario` (409) for a social monitoring one.
+
 ## Configuration
 
 Settings are resolved in this order: flags, then `TWOBEC_*` environment
