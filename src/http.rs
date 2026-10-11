@@ -114,6 +114,7 @@ impl Client {
         let url = self.url(path);
         self.send_with_retry(|| self.inner.get(&url).query(query))
             .await
+            .map_err(|e| e.with_scope_hint("GET", path))
     }
 
     async fn send_with_retry<F>(&self, build: F) -> Result<Response, ApiError>
@@ -148,6 +149,7 @@ impl Client {
         let url = self.url(path);
         self.send_write(write, || self.inner.post(&url).json(body))
             .await
+            .map_err(|e| e.with_scope_hint("POST", path))
     }
 
     /// `PATCH` with a JSON merge patch body (`application/merge-patch+json`).
@@ -166,12 +168,15 @@ impl Client {
                 .body(raw.clone())
         })
         .await
+        .map_err(|e| e.with_scope_hint("PATCH", path))
     }
 
     /// `DELETE` a resource.
     pub async fn delete(&self, path: &str, write: &WriteOptions) -> Result<Response, ApiError> {
         let url = self.url(path);
-        self.send_write(write, || self.inner.delete(&url)).await
+        self.send_write(write, || self.inner.delete(&url))
+            .await
+            .map_err(|e| e.with_scope_hint("DELETE", path))
     }
 
     async fn send_write<F>(&self, write: &WriteOptions, build: F) -> Result<Response, ApiError>
@@ -211,7 +216,9 @@ impl Client {
         if !(200..300).contains(&status) {
             let retry_after = header_u64(r.headers(), RETRY_AFTER.as_str());
             let body = r.text().await?;
-            return Err(ApiError::from_response(status, retry_after, &body));
+            return Err(
+                ApiError::from_response(status, retry_after, &body).with_scope_hint("GET", path)
+            );
         }
         let content_type = header_string(r.headers(), CONTENT_TYPE.as_str());
         let mut written = 0u64;

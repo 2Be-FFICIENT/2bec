@@ -13,3 +13,4 @@ pub mod runs;
     reason = "group, version and calendar types land with their commands"
 )]
 pub mod scenarios;
+pub mod scopes;

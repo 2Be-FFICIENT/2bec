@@ -47,6 +47,9 @@ pub struct Problem {
     pub instance: Option<String>,
     #[serde(default)]
     pub trace_id: Option<String>,
+    /// The scope the operation needed, filled in by the client on `scope-missing`.
+    #[serde(skip)]
+    pub required_scope: Option<&'static str>,
 }
 
 impl Problem {
@@ -92,6 +95,16 @@ pub enum ApiError {
 }
 
 impl ApiError {
+    /// Name the scope a `scope-missing` answer was about, from the operation.
+    pub fn with_scope_hint(mut self, method: &str, path: &str) -> Self {
+        if let Self::Auth(p) = &mut self
+            && p.code() == "scope-missing"
+        {
+            p.required_scope = crate::api::scopes::required(method, path);
+        }
+        self
+    }
+
     /// Classify a non-success response.
     pub fn from_response(status: u16, retry_after: Option<u64>, body: &str) -> Self {
         let Some(problem) = Problem::parse(body) else {
@@ -171,7 +184,12 @@ fn auth_message(p: &Problem) -> String {
         }
         "token-invalid" => "access token is invalid for this API: run `2bec auth login`".into(),
         "token-expired" => "access token has expired: run `2bec auth login`".into(),
-        "scope-missing" => "credential lacks the scope this command needs".into(),
+        "scope-missing" => match p.required_scope {
+            Some(scope) => {
+                format!("credential lacks the scope `{scope}`: ask an API Admin for a key with it")
+            }
+            None => "credential lacks the scope this command needs".into(),
+        },
         "staff-not-allowed" => "staff accounts cannot use the API: use an API key".into(),
         other => format!("authentication failed ({other})"),
     }
