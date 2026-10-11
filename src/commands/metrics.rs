@@ -8,7 +8,8 @@ use super::Context;
 use super::alerts::canonical;
 use super::runs::ensure_guid;
 use crate::api::metrics::{
-    self, AvailabilityMetrics, ResponseTimesMetrics, VoiceQualityFigures, VoiceQualityMetrics,
+    self, AvailabilityMetrics, ResponseTimesMetrics, SocialAnalysisMetrics, SocialMetrics,
+    VoiceQualityFigures, VoiceQualityMetrics,
 };
 use crate::api::runs;
 use crate::output::{OutputArgs, Table, or_dash, short_time};
@@ -70,6 +71,44 @@ Examples:
 At most 20 scenarios and 31 days; one scenario's calls are at
 `2bec scenarios voice-quality <id>`.")]
     VoiceQuality {
+        #[command(flatten)]
+        selection: Selection,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// What people posted about the services social monitoring scenarios watch (last 7 days by default)
+    #[command(after_help = "\
+Examples:
+  2bec metrics social
+  2bec metrics social --period today --interval 15
+  2bec metrics social --events --period yesterday --json
+
+At most 30 scenarios and 92 days. --interval sets the bucket length in
+minutes (10, 15, 30, 60, 120 or 240; chosen from the period by default).
+The per-bucket series is in --json only; --events adds the posts, newest first.")]
+    Social {
+        #[command(flatten)]
+        selection: Selection,
+        /// Bucket length in minutes: 10, 15, 30, 60, 120 or 240
+        #[arg(long, value_name = "MINUTES")]
+        interval: Option<u32>,
+        /// Include the posts themselves (capped by the API)
+        #[arg(long)]
+        events: bool,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Daily AI reading of the social posts: issues reported and keywords (last 7 days by default)
+    #[command(
+        alias = "analysis",
+        after_help = "\
+Examples:
+  2bec metrics social-analysis
+  2bec metrics social-analysis --scenario 7f3c... --period last30d
+
+At most 30 scenarios and 31 days. A first reading of a day may take a while."
+    )]
+    SocialAnalysis {
         #[command(flatten)]
         selection: Selection,
         #[command(flatten)]
@@ -151,6 +190,15 @@ pub async fn run(ctx: &Context, args: MetricsArgs) -> Result<()> {
         }
         MetricsCommand::VoiceQuality { selection, output } => {
             voice_quality(ctx, &selection, output).await
+        }
+        MetricsCommand::Social {
+            selection,
+            interval,
+            events,
+            output,
+        } => social(ctx, &selection, interval, events, output).await,
+        MetricsCommand::SocialAnalysis { selection, output } => {
+            social_analysis(ctx, &selection, output).await
         }
     }
 }
@@ -464,6 +512,218 @@ async fn voice_quality(ctx: &Context, selection: &Selection, out: OutputArgs) ->
     Ok(())
 }
 
+async fn social(
+    ctx: &Context,
+    selection: &Selection,
+    interval: Option<u32>,
+    events: bool,
+    out: OutputArgs,
+) -> Result<()> {
+    let mut query = selection.query(30)?;
+    if let Some(i) = interval {
+        if !metrics::SOCIAL_INTERVALS.contains(&i) {
+            bail!(
+                "--interval must be one of {}",
+                metrics::SOCIAL_INTERVALS
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        query.push(("interval", i.to_string()));
+    }
+    if events {
+        query.push(("include", "events".into()));
+    }
+    let m: SocialMetrics = ctx
+        .client()?
+        .get_with("v2/metrics/social", &query)
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&m);
+    }
+    let t = &m.totals;
+    println!(
+        "Period:        {} ({} min buckets, as of {})",
+        period(&m.period),
+        m.interval_minutes,
+        short_time(&m.as_of)
+    );
+    println!(
+        "Scenarios:     {}{}",
+        m.scenario_count,
+        if m.error_count > 0 {
+            format!(" ({} not answered)", m.error_count)
+        } else {
+            String::new()
+        }
+    );
+    println!(
+        "Posts:         {} ({} incidents, {}); previous {} / {}",
+        t.events,
+        t.incidents,
+        pct(t.incident_rate),
+        opt_count(t.previous_events),
+        opt_count(t.previous_incidents)
+    );
+    println!("Worst grade:   {}", t.worst_grade);
+    let g = &t.time_in_grade;
+    println!(
+        "Time in grade: {} target, {} client, {} insufficient, {} unacceptable (buckets)",
+        g.target, g.client, g.insufficient, g.unacceptable
+    );
+    if let Some(peak) = &t.peak_bucket_start {
+        println!(
+            "Peak bucket:   {} ({} incidents)",
+            short_time(peak),
+            t.peak_bucket_incidents
+        );
+    }
+    if t.busiest_day.is_some() || t.peak_hour.is_some() {
+        println!(
+            "Busiest:       day {}, hour {}",
+            or_dash(t.busiest_day.as_deref()),
+            t.peak_hour.map_or("-".to_string(), |h| format!("{h:02}h"))
+        );
+    }
+
+    if !m.by_scenario.is_empty() {
+        println!();
+        let mut tbl = Table::new([
+            "ID",
+            "NAME",
+            "SOURCE",
+            "STATE",
+            "POSTS",
+            "INCIDENTS",
+            "RATE",
+            "WORST",
+            "LAST INCIDENT",
+        ]);
+        for r in &m.by_scenario {
+            tbl.row([
+                r.scenario.id.clone(),
+                r.scenario.name.clone(),
+                r.source.clone(),
+                match &r.error {
+                    Some(e) => format!("error: {e}"),
+                    None => r.state.clone(),
+                },
+                r.events.to_string(),
+                r.incidents.to_string(),
+                pct(r.incident_rate),
+                r.worst_grade.clone(),
+                r.last_incident
+                    .as_deref()
+                    .map_or("-".to_string(), short_time),
+            ]);
+        }
+        tbl.print();
+    }
+    if !m.days.is_empty() {
+        println!();
+        println!("By day:");
+        let mut tbl = Table::new(["DATE", "POSTS", "INCIDENTS", "GRADE"]);
+        for d in &m.days {
+            tbl.row([
+                d.date.clone(),
+                d.events.to_string(),
+                d.incidents.to_string(),
+                d.grade.clone(),
+            ]);
+        }
+        tbl.print();
+    }
+    if let Some(ev) = &m.events {
+        println!();
+        println!(
+            "Posts, newest first ({} of {}{}):",
+            ev.len(),
+            m.events_total,
+            if m.events_truncated {
+                ", truncated"
+            } else {
+                ""
+            }
+        );
+        let mut tbl = Table::new(["AT", "SCENARIO", "INCIDENT", "TEXT", "LINK"]);
+        for e in ev {
+            tbl.row([
+                short_time(&e.at),
+                e.scenario.name.clone(),
+                if e.incident { "yes" } else { "" }.to_string(),
+                one_line(e.text.as_deref()),
+                or_dash(e.link.as_deref()),
+            ]);
+        }
+        tbl.print();
+    }
+    Ok(())
+}
+
+async fn social_analysis(ctx: &Context, selection: &Selection, out: OutputArgs) -> Result<()> {
+    let query = selection.query(30)?;
+    let m: SocialAnalysisMetrics = ctx
+        .client()?
+        .get_with("v2/metrics/social/analysis", &query)
+        .await?
+        .json()?;
+    if out.wants_json() {
+        return out.print_json(&m);
+    }
+    println!("Period:        {}", period(&m.period));
+    println!(
+        "Scenarios:     {}{}",
+        m.scenario_count,
+        if m.error_count > 0 {
+            format!(" ({} not answered)", m.error_count)
+        } else {
+            String::new()
+        }
+    );
+    println!(
+        "Keywords:      {}",
+        if m.keywords.is_empty() {
+            "-".to_string()
+        } else {
+            m.keywords
+                .iter()
+                .map(|k| format!("{} ({})", k.code, k.count))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    );
+    if m.days.is_empty() {
+        if crate::output::stdout_is_tty() {
+            eprintln!("No day with a reading in this period");
+        }
+        return Ok(());
+    }
+    for d in &m.days {
+        println!();
+        println!(
+            "{}  {}  {} posts, {} incidents ({})",
+            d.date,
+            d.scenario.name,
+            d.events,
+            d.incidents,
+            pct(d.incident_rate)
+        );
+        for issue in &d.online_issues {
+            println!("  online:   {issue}");
+        }
+        for issue in &d.other_issues {
+            println!("  other:    {issue}");
+        }
+        if !d.keywords.is_empty() {
+            println!("  keywords: {}", d.keywords.join(", "));
+        }
+    }
+    Ok(())
+}
+
 /// The lines every voice quality view shares.
 pub fn print_figures(f: &VoiceQualityFigures) {
     println!(
@@ -567,6 +827,18 @@ pub fn opt_duration(seconds: Option<f64>) -> String {
     match seconds {
         Some(s) => duration(s),
         None => "-".into(),
+    }
+}
+
+fn opt_count(v: Option<i64>) -> String {
+    v.map_or("-".to_string(), |v| v.to_string())
+}
+
+/// Whitespace collapsed to single spaces so a post fits one table row.
+fn one_line(text: Option<&str>) -> String {
+    match text {
+        Some(t) if !t.trim().is_empty() => t.split_whitespace().collect::<Vec<_>>().join(" "),
+        _ => "-".into(),
     }
 }
 
