@@ -34,22 +34,27 @@ enum AuthCommand {
     #[command(after_help = "\
 Examples:
   2bec auth login                      # opens the browser (person login)
-  2bec auth login --no-browser         # prints the URL to open elsewhere
+  2bec auth login --device             # shows a code to enter on another device
+  2bec auth login --no-browser         # prints the loopback URL (port forwarding)
   2bec auth login --with-token         # prompts for an API key (hidden)
   echo \"$KEY\" | 2bec auth login       # reads an API key from stdin
   2bec --profile dev auth login --with-token < key.txt
 
 The browser login asks the identity server for the scopes pegas-api:read
 and pegas-api:write on your own account; the access token is renewed
-automatically for 30 days. An API Admin creates API keys in the web app
+automatically for 30 days. Over SSH, or wherever no browser can open, the
+device flow is used: open the URL shown on any device and type the code. An API Admin creates API keys in the web app
 under Administration > API access; the secret is shown once.")]
     Login {
         /// Store an API key instead of logging in with the browser
         #[arg(long)]
         with_token: bool,
         /// Print the login URL instead of opening a browser
-        #[arg(long, conflicts_with = "with_token")]
+        #[arg(long, conflicts_with_all = ["with_token", "device"])]
         no_browser: bool,
+        /// Log in from another device with a short code (default over SSH)
+        #[arg(long, conflicts_with = "with_token")]
+        device: bool,
         /// Print the verified identity as JSON
         #[arg(long)]
         json: bool,
@@ -77,12 +82,17 @@ pub async fn run(ctx: &Context, args: AuthArgs) -> Result<()> {
         AuthCommand::Login {
             with_token,
             no_browser,
+            device,
             json,
         } => {
-            // A piped stdin carries a key; a terminal means the browser
-            // flow. --no-browser is for headless use, so it wins over stdin.
-            if with_token || (!no_browser && !std::io::stdin().is_terminal()) {
+            // A piped stdin carries a key; a terminal means a person login.
+            // --no-browser and --device are for headless use, so they win
+            // over stdin.
+            let headless = no_browser || device;
+            if with_token || (!headless && !std::io::stdin().is_terminal()) {
                 login_with_key(ctx, json).await
+            } else if device || (!no_browser && browser_unavailable()) {
+                login_with_device(ctx, json).await
             } else {
                 login_in_browser(ctx, no_browser, json).await
             }
@@ -97,6 +107,40 @@ pub async fn run(ctx: &Context, args: AuthArgs) -> Result<()> {
     }
 }
 
+/// No browser can open here: an SSH session without a display. The loopback
+/// redirect would land on this machine, which the remote browser cannot
+/// reach, so the device flow is the right default.
+fn browser_unavailable() -> bool {
+    let ssh = std::env::var_os("SSH_CONNECTION").is_some_and(|v| !v.is_empty())
+        || std::env::var_os("SSH_TTY").is_some_and(|v| !v.is_empty());
+    let display = ["DISPLAY", "WAYLAND_DISPLAY"]
+        .iter()
+        .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()));
+    ssh && !display
+}
+
+/// Device authorization grant: show a code, wait for the approval elsewhere.
+async fn login_with_device(ctx: &Context, json: bool) -> Result<()> {
+    let http = ctx.plain_http()?;
+    let endpoints = oauth::discover(&http, &ctx.settings.api_url, ctx.settings.issuer.as_deref())
+        .await
+        .context("cannot find the identity server")?;
+    let cfg = ctx.settings.login_config(true);
+    let auth = oauth::device_authorize(&http, &endpoints, &cfg).await?;
+    eprintln!("Open this URL on any device and enter the code to log in:\n");
+    eprintln!("  {}", auth.verification_uri);
+    eprintln!("  Code: {}\n", auth.user_code);
+    if let Some(complete) = &auth.verification_uri_complete {
+        eprintln!("  (or open {complete})\n");
+    }
+    eprintln!(
+        "Waiting for the login to complete (the code is valid {} minutes)...",
+        auth.expires_in.div_ceil(60)
+    );
+    let tokens = oauth::poll_device(&http, &endpoints, &cfg, &auth).await?;
+    finish_person_login(ctx, endpoints.issuer, tokens, json).await
+}
+
 async fn login_in_browser(ctx: &Context, no_browser: bool, json: bool) -> Result<()> {
     let http = ctx.plain_http()?;
     let endpoints = oauth::discover(&http, &ctx.settings.api_url, ctx.settings.issuer.as_deref())
@@ -104,7 +148,16 @@ async fn login_in_browser(ctx: &Context, no_browser: bool, json: bool) -> Result
         .context("cannot find the identity server")?;
     let cfg = ctx.settings.login_config(no_browser);
     let tokens = oauth::login(&http, &endpoints, &cfg).await?;
+    finish_person_login(ctx, endpoints.issuer, tokens, json).await
+}
 
+/// Verify the new tokens against `/v2/me`, store them, report.
+async fn finish_person_login(
+    ctx: &Context,
+    issuer: String,
+    tokens: oauth::Tokens,
+    json: bool,
+) -> Result<()> {
     let client = ctx.client_with(Some(&tokens.access_token))?;
     let me: Me = client.get(me::PATH).await?.json()?;
     ctx.store.set(
@@ -113,7 +166,7 @@ async fn login_in_browser(ctx: &Context, no_browser: bool, json: bool) -> Result
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token,
             expires_at: tokens.expires_at,
-            issuer: endpoints.issuer,
+            issuer,
         },
     )?;
     report_login(ctx, &me, json)
