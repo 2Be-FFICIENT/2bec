@@ -104,6 +104,15 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "v2/scenarios/{}/voice-quality", "metrics:read"),
     ("POST", "v2/scenarios/{}:pause", "monitoring:write"),
     ("POST", "v2/scenarios/{}:resume", "monitoring:write"),
+    ("GET", "v2/incidents", "metrics:read"),
+    ("GET", "v2/incidents/{}", "metrics:read"),
+    ("GET", "v2/interruptions", "planning:read"),
+    ("POST", "v2/interruptions", "monitoring:write"),
+    ("GET", "v2/interruptions/{}", "planning:read"),
+    ("PATCH", "v2/interruptions/{}", "monitoring:write"),
+    ("DELETE", "v2/interruptions/{}", "monitoring:write"),
+    ("POST", "v2/interruptions/{}:end", "monitoring:write"),
+    ("POST", "v2/interruptions/{}:restore", "monitoring:write"),
     ("GET", "v2/timeline", "planning:read"),
     ("GET", "v2/pauses", "planning:read"),
     ("GET", "v2/events", "planning:read"),
@@ -202,6 +211,11 @@ mod tests {
             Some("reports:write")
         );
         assert_eq!(required("PATCH", "v2/events/abc"), Some("monitoring:write"));
+        assert_eq!(
+            required("POST", "v2/interruptions/abc:restore"),
+            Some("monitoring:write")
+        );
+        assert_eq!(required("GET", "v2/incidents/abc"), Some("metrics:read"));
         assert_eq!(required("POST", "v2/scenarios/:pause"), None);
         assert_eq!(required("GET", "v2/unknown"), None);
         assert_eq!(required("GET", "v2/runs/abc/extra/deep"), None);
