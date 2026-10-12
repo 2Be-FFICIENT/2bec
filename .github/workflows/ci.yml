@@ -83,25 +83,13 @@ jobs:
           key: ${{ matrix.target }}
       - name: cargo test
         run: cargo test --locked --target ${{ matrix.target }}
-      - name: cargo build --release
-        run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Smoke test the binary
         shell: bash
         run: |
-          bin="target/${{ matrix.target }}/release/2bec"
+          bin="target/${{ matrix.target }}/debug/2bec"
           [[ "${{ runner.os }}" == "Windows" ]] && bin="$bin.exe"
           "$bin" --version
           "$bin" --help
-          ls -l "$bin"
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: 2bec-${{ matrix.name }}
-          path: |
-            target/${{ matrix.target }}/release/2bec
-            target/${{ matrix.target }}/release/2bec.exe
-          if-no-files-found: error
-          retention-days: 14
 
   ci-ok:
     name: CI passed
