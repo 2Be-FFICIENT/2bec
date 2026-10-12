@@ -122,6 +122,11 @@ const TABLE: &[(&str, &str, &str)] = &[
     ("GET", "v2/badges/{}", "scenarios:read"),
     ("PATCH", "v2/badges/{}", "indicators:write"),
     ("DELETE", "v2/badges/{}", "indicators:write"),
+    ("GET", "v2/audit-entries", "audit:read"),
+    ("GET", "v2/audit-entries/{}", "audit:read"),
+    ("GET", "v2/comments", "runs:read"),
+    ("GET", "v2/tickets", "scenarios:read"),
+    ("GET", "v2/tickets/{}", "scenarios:read"),
     ("GET", "v2/users", "users:read"),
     ("GET", "v2/users/{}", "users:read"),
     ("GET", "v2/profiles", "users:read"),
@@ -262,6 +267,11 @@ mod tests {
             Some("users:read")
         );
         assert_eq!(required("GET", "v2/security-settings"), Some("users:read"));
+        assert_eq!(required("GET", "v2/audit-entries/42"), Some("audit:read"));
+        assert_eq!(
+            required("GET", "v2/tickets?view=open"),
+            Some("scenarios:read")
+        );
         assert_eq!(
             required("POST", "v2/scenarios/abc/thresholds:apply"),
             Some("indicators:write")
