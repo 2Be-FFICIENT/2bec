@@ -190,6 +190,9 @@ mod tests {
         fn remove(&self, profile: &str) -> Result<bool> {
             Ok(self.0.borrow_mut().remove(profile).is_some())
         }
+        fn profiles(&self) -> Result<Vec<String>> {
+            Ok(self.0.borrow().keys().cloned().collect())
+        }
         fn describe(&self) -> String {
             "memory".into()
         }
