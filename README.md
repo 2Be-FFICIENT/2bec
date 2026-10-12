@@ -448,12 +448,29 @@ not preserved), and shows where each effective value comes from:
 2bec config profile use dev                        # sets default_profile
 ```
 
-Keys: `api_url`, `issuer`, `oauth_client_id`, `api_resource` (per profile)
-and `default_profile`.
+Keys: `api_url`, `issuer`, `oauth_client_id`, `api_resource` (per profile),
+`default_profile` and `credential_store`.
 
 Credentials are kept per profile in `hosts.toml` in the same directory,
 written with owner-only permissions. `--token` / `TWOBEC_TOKEN` override the stored
 token for one invocation.
+
+### OS keyring
+
+A build with the `keyring` feature (`cargo build --release --features keyring`,
+and the release binaries) can keep the secrets in the operating system keyring
+instead: Secret Service on Linux, Keychain on macOS, Credential Manager on
+Windows.
+
+```sh
+2bec config set credential_store keyring
+2bec auth login            # from now on the token goes to the keyring
+```
+
+`hosts.toml` then only lists the logged-in profiles (`keyring = true`) with
+the non-secret fields. Logins made before the switch stay readable; log in
+again to move them. Set `credential_store` back to `file` to return to the
+file, which is the default.
 
 ## Exit codes
 
