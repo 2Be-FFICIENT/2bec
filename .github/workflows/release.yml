@@ -1,0 +1,149 @@
+name: Release
+
+# Pushing a tag `vX.Y.Z` that matches the version in Cargo.toml builds
+# static binaries for every platform, packs them with the completions, the
+# manual pages and the notices, and publishes a GitHub release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Check the tag against Cargo.toml
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the version
+        id: read
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Cargo.toml says $version"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - name: macos-x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - name: windows-arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Install musl tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Static CRT on Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> "$GITHUB_ENV"
+      - name: cargo build --release
+        run: cargo build --locked --release --features keyring --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        env:
+          NAME: 2bec-${{ needs.version.outputs.version }}-${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/release/2bec"
+          [[ "${{ runner.os }}" == "Windows" ]] && bin="$bin.exe"
+          "$bin" --version
+          stage="dist/$NAME"
+          mkdir -p "$stage/completions"
+          cp "$bin" README.md LICENSE THIRD-PARTY-NOTICES.md "$stage/"
+          for shell in bash zsh fish powershell elvish; do
+            "$bin" completion "$shell" > "$stage/completions/2bec.$shell"
+          done
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            (cd dist && 7z a -tzip "$NAME.zip" "$NAME" > /dev/null)
+          else
+            "$bin" man --dir "$stage/man/man1"
+            # Static on Linux (musl) and dynamic only against system libs on macOS.
+            if [[ "${{ runner.os }}" == "Linux" ]]; then
+              file "$bin" | grep -q "static" || { file "$bin"; exit 1; }
+            fi
+            COPYFILE_DISABLE=1 tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          fi
+          rm -r "$stage"
+          ls -l dist
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "2bec ${{ needs.version.outputs.version }}" \
+            --generate-notes \
+            dist/*
+      - name: Keep the archives (manual run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-archives
+          path: dist/*
