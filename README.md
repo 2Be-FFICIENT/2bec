@@ -1,24 +1,64 @@
 # 2bec
 
-`2bec` is the command-line client for the 2Be-FFICIENT monitoring platform.
-It puts the whole public API in your terminal: the runs of your scenarios,
-their metrics and incidents, alerts, planning, reports and webhooks, with the
-same conventions as `gh` or `kubectl`.
+**A command-line client for the 2Be-FFICIENT public API.**
 
-It is made for the moments the web app is the wrong tool: checking last
-night's failures from a shell, gating a deployment on a smoke run in CI,
-exporting an SLA report from cron, or wiring the platform into your own
-scripts. It is not an administration console; keys and users stay in the
-web app.
+[![Release](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.2befficient.com%2Fcli%2Freleases%2Flatest&query=%24.version&label=release&prefix=v&color=blue)](https://github.com/2Be-FFICIENT/2bec/releases)
+[![CI](https://github.com/2Be-FFICIENT/2bec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/2Be-FFICIENT/2bec/actions/workflows/ci.yml)
+![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-## Highlights
+[Install](#install) · [Quick start](#quick-start) · [Commands](#commands) · [Examples](examples/README.md) · [API docs](https://api.2befficient.com/docs)
 
-- Tables on a terminal, tab-separated text in a pipe, `--json` and `--jq` for scripts.
-- Browser, device-code or API-key login; credentials in a 0600 file or the OS keyring.
-- Profiles for several environments, with flags, `TWOBEC_*` variables and a config file layered in that order.
-- Safe writes: idempotency keys on retries, `--if-match` with ETags against lost updates, dry runs and confirmations on bulk changes.
-- Exit codes that tell auth, network, API and rate-limit failures apart; one-line errors with the trace id on `--verbose`.
-- Shell completions and manual pages generated from the command definitions.
+`2bec` gives you the monitoring platform's API (`/v2`) from a shell. Each
+resource is a command group: runs, scenarios, metrics, incidents, alerts,
+planning, reports, webhooks and so on. Commands read as
+`2bec <group> <action>`, so if you know `gh` or `kubectl` you already know
+the shape.
+
+```console
+$ 2bec auth login
+$ 2bec runs list --status failed --period today
+$ 2bec runs get <run> --jq '.steps[] | [.label, .durationMs] | @tsv'
+```
+
+### When it helps
+
+- **CI/CD validation**: a maintenance window during the deploy, then a run with your own `--var` values.
+- **Accurate figures**: neutralize the runs of a known outage and post an event that explains the dip.
+- **Third-party outages**: pause the scenarios until the service is back.
+- **Support follow-up** on the tickets waiting for your answer.
+- **Scheduled exports** of availability figures or report PDFs from cron.
+- **Your own tooling** fed with `--json`, or shaped on the spot with `--jq`.
+
+> [!NOTE]
+> `2bec` is a client, not an administration console. API keys are created
+> by an API Admin in the web app (`/admin/api-keys`), and users and access
+> profiles are read-only here.
+
+### How it behaves
+
+| Area | Behavior |
+|------|----------|
+| Output | Tables on a terminal, tab-separated text in a pipe, `--json` and `--jq` for scripts. No colors when piped or when `NO_COLOR` is set. |
+| Login | Browser, a short device code (the default over SSH), or an API key. |
+| Credentials | A `0600` file by default, or the OS keyring. |
+| Settings | Profiles per environment. Flags win over `TWOBEC_*` variables, which win over `config.toml`. |
+| Writes | Idempotency keys on retries, `--if-match` against lost updates, dry run and confirmation before bulk changes. |
+| Failures | One line on stderr, with the cause chain and trace id under `--verbose`. Retries with backoff on `429` and `5xx`. |
+| Help | Every command has examples in `--help`. Shell completions and man pages come from the same definitions. |
+
+> [!TIP]
+> In CI, skip `auth login` and set `TWOBEC_TOKEN` to an API key. Locally,
+> `echo "$KEY" | 2bec auth login` stores a key read from stdin.
+
+> [!IMPORTANT]
+> Exit codes are part of the interface. Auth, network, API and rate-limit
+> failures each have their own code (3 to 6), so a script can tell them
+> apart. See [Exit codes](#exit-codes).
+
+> [!WARNING]
+> `--jq` hands the JSON to the `jq` on your `PATH`. Install
+> [jq](https://jqlang.org) to use it, or pipe `--json` to any tool you like.
 
 ## Install
 
@@ -54,8 +94,7 @@ feed, checks it against `SHA256SUMS` and replaces the binary in place
 `TWOBEC_INSTALL_URL` name another feed); the completions and manual pages the
 installer put under `share/` are regenerated.
 
-From source: `cargo build --release` (add `--features keyring` for OS keyring
-support, which the release binaries include).
+From source: see [Building from source](#building-from-source).
 
 ## Quick start
 
@@ -135,16 +174,82 @@ Errors are one line on stderr; `--verbose` adds the cause chain and the
 API's trace id to quote in support requests. A route answering with
 `Deprecation` / `Sunset` headers gets a one-line warning once per invocation.
 
-## Contributing
+## Building from source
+
+You need [rustup](https://rustup.rs) and git. The repository pins the stable
+toolchain with clippy and rustfmt in `rust-toolchain.toml`, so rustup fetches
+it on the first build.
 
 ```sh
-cargo test                                                   # unit and end-to-end tests, no network
-cargo clippy --all-targets --all-features -- -D warnings
-./2bec.sh ping                                               # rebuilds on change and forwards args
+git clone https://github.com/2Be-FFICIENT/2bec.git
+cd 2bec
+cargo build --release --features keyring
+./target/release/2bec --version
 ```
 
-To cut a release, bump `version` in `Cargo.toml`, commit, and push a tag
-`v<version>`; the tag must match the manifest or the pipeline stops.
+The binary lands in `target/release/2bec` (`2bec.exe` on Windows). Without
+`--features keyring` it builds without OS keyring support and stores
+credentials only in the `0600` file. The release binaries include the keyring.
+
+To install it with its completions and manual pages:
+
+```sh
+install -m 755 target/release/2bec ~/.local/bin/
+2bec completion bash > ~/.local/share/bash-completion/completions/2bec
+2bec man --dir ~/.local/share/man/man1
+```
+
+`2bec completion --help` shows the lines for zsh, fish and PowerShell.
+
+> [!TIP]
+> To match the release builds, Linux binaries are static against musl. Install
+> `musl-tools` (Debian, Ubuntu) or `musl-gcc` (Fedora), then build with
+> `rustup target add x86_64-unknown-linux-musl` and
+> `cargo build --release --features keyring --target x86_64-unknown-linux-musl`.
+
+### Checks
+
+These are the checks CI runs. They need no network and no API key.
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test                      # unit and end-to-end tests against a mock server
+cargo test --features keyring
+cargo deny check                # licenses and advisories, needs cargo-deny
+```
+
+While working on a command, `./2bec.sh <args>` rebuilds when the sources change
+and runs the binary with your arguments.
+
+> [!NOTE]
+> Releases are cut from a tag. Bump `version` in `Cargo.toml`, merge, and push
+> a tag `v<version>`. The release pipeline stops if the tag and the manifest
+> disagree.
+
+## Security
+
+> [!IMPORTANT]
+> Report vulnerabilities privately to **security@2befficient.fr**, not in a
+> public issue. [SECURITY.md](SECURITY.md) lists what to include and the
+> response times. Only the latest release receives security fixes.
+
+How `2bec` handles what it is trusted with:
+
+- **Credentials** go into `hosts.toml` under the config directory with `0600`
+  permissions, or into the OS keyring with `credential_store = "keyring"`.
+- **Tokens are never printed.** `auth status` shows who you are, not the
+  token, and `--help` does not echo the value of `TWOBEC_TOKEN`.
+- **Connections** use HTTPS through rustls. No OpenSSL is involved.
+- **Upgrades and installs** check each archive against the release's
+  `SHA256SUMS` before replacing anything.
+- **Dependencies** are checked by `cargo deny` in CI for licenses and known
+  advisories. Dependabot opens weekly update pull requests.
+
+> [!WARNING]
+> The `SHA256SUMS` check protects against corrupted downloads, not against a
+> compromised feed, because the sums come over the same HTTPS connection.
+> Releases are not signed yet.
 
 ## License
 
