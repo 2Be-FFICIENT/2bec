@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::output::OutputArgs;
 use crate::upgrade::feed::{DEFAULT_FEED, Feed, PLATFORM, Release, Version};
-use crate::upgrade::{archive, replace};
+use crate::upgrade::{archive, extras, replace};
 
 #[derive(Args, Debug)]
 #[command(after_help = "\
@@ -22,7 +22,8 @@ Examples:
 The feed is the API's (https://api.2befficient.com/cli); --feed or
 TWOBEC_INSTALL_URL name another one, as for the installer. The archive is
 checked against the SHA256SUMS of the release before the binary is replaced
-in place.")]
+in place; the completions and manual pages the installer put under share/
+are regenerated when they are there.")]
 pub struct UpgradeArgs {
     /// Report whether a newer release exists; change nothing
     #[arg(long)]
@@ -50,6 +51,9 @@ struct Report {
     up_to_date: bool,
     /// `checked`, `upgraded`, `downgraded` or `unchanged`.
     action: &'static str,
+    /// Completions and manual pages regenerated from the new binary.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    refreshed: Vec<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     notes: Option<String>,
 }
@@ -81,6 +85,7 @@ pub async fn run(timeout: u64, args: UpgradeArgs) -> Result<()> {
         binary: binary.clone(),
         up_to_date,
         action: "checked",
+        refreshed: Vec::new(),
         notes: release.notes.clone(),
     };
 
@@ -140,6 +145,15 @@ pub async fn run(timeout: u64, args: UpgradeArgs) -> Result<()> {
     } else {
         "downgraded"
     };
+    let mut skipped = Vec::new();
+    for share in extras::share_dirs(&binary) {
+        let (done, failed) = extras::refresh(&binary, &share);
+        report.refreshed.extend(done);
+        skipped.extend(failed);
+    }
+    for note in &skipped {
+        eprintln!("Could not refresh {note} (skipped)");
+    }
     if args.output.wants_json() {
         return args.output.print_json(&report);
     }
@@ -153,6 +167,17 @@ pub async fn run(timeout: u64, args: UpgradeArgs) -> Result<()> {
         format_args!("2bec from {current} to {target}"),
         binary.display()
     );
+    if !report.refreshed.is_empty() {
+        println!(
+            "Refreshed the completions and manual pages ({})",
+            report
+                .refreshed
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     if let Some(notes) = &release.notes {
         println!("Release notes: {notes}");
     }

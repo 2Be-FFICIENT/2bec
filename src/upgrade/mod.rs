@@ -4,5 +4,6 @@
 #![expect(dead_code, reason = "used by the upgrade command once it is wired in")]
 
 pub mod archive;
+pub mod extras;
 pub mod feed;
 pub mod replace;
