@@ -4,6 +4,7 @@
 pub mod alerts;
 pub mod availability;
 pub mod error;
+pub mod governance;
 pub mod incidents;
 pub mod indicators;
 pub mod interruptions;
