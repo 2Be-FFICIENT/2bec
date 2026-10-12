@@ -1,24 +1,57 @@
 # 2bec
 
-`2bec` is the command-line client for the 2Be-FFICIENT monitoring platform.
-It puts the whole public API in your terminal: the runs of your scenarios,
-their metrics and incidents, alerts, planning, reports and webhooks, with the
-same conventions as `gh` or `kubectl`.
+**A command-line client for the 2Be-FFICIENT public API.**
 
-It is made for the moments the web app is the wrong tool: checking last
-night's failures from a shell, gating a deployment on a smoke run in CI,
-exporting an SLA report from cron, or wiring the platform into your own
-scripts. It is not an administration console; keys and users stay in the
-web app.
+[Install](#install) · [Quick start](#quick-start) · [Commands](#commands) · [Examples](examples/README.md) · [API docs](https://api.2befficient.com/docs)
 
-## Highlights
+`2bec` gives you the monitoring platform's API (`/v2`) from a shell. Each
+resource is a command group: runs, scenarios, metrics, incidents, alerts,
+planning, reports, webhooks and so on. Commands read as
+`2bec <group> <action>`, so if you know `gh` or `kubectl` you already know
+the shape.
 
-- Tables on a terminal, tab-separated text in a pipe, `--json` and `--jq` for scripts.
-- Browser, device-code or API-key login; credentials in a 0600 file or the OS keyring.
-- Profiles for several environments, with flags, `TWOBEC_*` variables and a config file layered in that order.
-- Safe writes: idempotency keys on retries, `--if-match` with ETags against lost updates, dry runs and confirmations on bulk changes.
-- Exit codes that tell auth, network, API and rate-limit failures apart; one-line errors with the trace id on `--verbose`.
-- Shell completions and manual pages generated from the command definitions.
+```console
+$ 2bec auth login
+$ 2bec runs list --status failed --period today
+$ 2bec runs get <run> --jq '.steps[] | [.label, .durationMs] | @tsv'
+```
+
+### When it helps
+
+- **Checking on things** without opening the browser, such as last night's failures or an open incident.
+- **Continuous integration (CI) gates** that start a smoke run and fail the pipeline on the exit code.
+- **Scheduled exports** of SLA figures or report PDFs from cron.
+- **Your own tooling** fed with `--json`, or shaped on the spot with `--jq`.
+
+> [!NOTE]
+> `2bec` is a client, not an administration console. API keys are created
+> by an API Admin in the web app (`/admin/api-keys`), and users and access
+> profiles are read-only here.
+
+### How it behaves
+
+| Area | Behavior |
+|------|----------|
+| Output | Tables on a terminal, tab-separated text in a pipe, `--json` and `--jq` for scripts. No colors when piped or when `NO_COLOR` is set. |
+| Login | Browser, a short device code (the default over SSH), or an API key. |
+| Credentials | A `0600` file by default, or the OS keyring. |
+| Settings | Profiles per environment. Flags win over `TWOBEC_*` variables, which win over `config.toml`. |
+| Writes | Idempotency keys on retries, `--if-match` against lost updates, dry run and confirmation before bulk changes. |
+| Failures | One line on stderr, with the cause chain and trace id under `--verbose`. Retries with backoff on `429` and `5xx`. |
+| Help | Every command has examples in `--help`. Shell completions and man pages come from the same definitions. |
+
+> [!TIP]
+> In CI, skip `auth login` and set `TWOBEC_TOKEN` to an API key. Locally,
+> `echo "$KEY" | 2bec auth login` stores a key read from stdin.
+
+> [!IMPORTANT]
+> Exit codes are part of the interface. Auth, network, API and rate-limit
+> failures each have their own code (3 to 6), so a script can tell them
+> apart. See [Exit codes](#exit-codes).
+
+> [!WARNING]
+> `--jq` hands the JSON to the `jq` on your `PATH`. Install
+> [jq](https://jqlang.org) to use it, or pipe `--json` to any tool you like.
 
 ## Install
 
