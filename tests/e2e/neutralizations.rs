@@ -1,9 +1,7 @@
 //! End-to-end tests of `2bec neutralizations` against a mock API. No network.
 
-mod common;
-
+use crate::common::IsolatedEnv;
 use assert_cmd::Command;
-use common::IsolatedEnv;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use wiremock::matchers::{

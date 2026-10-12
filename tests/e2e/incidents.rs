@@ -1,10 +1,8 @@
 //! End-to-end tests of `2bec incidents` and `2bec interruptions` against a
 //! mock API. No network.
 
-mod common;
-
+use crate::common::IsolatedEnv;
 use assert_cmd::Command;
-use common::IsolatedEnv;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use wiremock::matchers::{body_json, header, header_exists, method, path, query_param};

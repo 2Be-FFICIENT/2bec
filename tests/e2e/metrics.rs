@@ -1,10 +1,8 @@
 //! End-to-end tests of `2bec metrics` and the per-scenario figures against a
 //! mock API. No network.
 
-mod common;
-
+use crate::common::IsolatedEnv;
 use assert_cmd::Command;
-use common::IsolatedEnv;
 use predicates::prelude::*;
 use tempfile::TempDir;
 use wiremock::matchers::{method, path, query_param, query_param_is_missing};

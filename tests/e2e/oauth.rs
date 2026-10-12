@@ -2,11 +2,9 @@
 //! and a mock API. The "browser" is a plain HTTP request to the loopback
 //! callback. No network.
 
-mod common;
-
+use crate::common::IsolatedEnv;
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
-use common::IsolatedEnv;
 use predicates::prelude::*;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -141,9 +139,9 @@ async fn browser_login_exchanges_the_code_and_stores_the_tokens() {
         .next()
         .unwrap();
     let mut sock = TcpStream::connect(authority).unwrap();
-    write!(
-        sock,
-        "GET /callback?code=thecode&state={state} HTTP/1.1\r\nHost: {authority}\r\n\r\n"
+    sock.write_all(
+        format!("GET /callback?code=thecode&state={state} HTTP/1.1\r\nHost: {authority}\r\n\r\n")
+            .as_bytes(),
     )
     .unwrap();
     let mut answer = String::new();

@@ -1,9 +1,7 @@
 //! End-to-end tests of `2bec completion` and `2bec man`. No network.
 
-mod common;
-
+use crate::common::IsolatedEnv;
 use assert_cmd::Command;
-use common::IsolatedEnv;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
