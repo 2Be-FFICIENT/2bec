@@ -24,7 +24,7 @@ $ 2bec runs get <run> --jq '.steps[] | [.label, .durationMs] | @tsv'
 ### When it helps
 
 - **Morning checks** of what failed overnight, without opening the browser.
-- **Release nights**: a maintenance window so no false alert fires, then an on-demand run.
+- **CI/CD validation**: a maintenance window during the deploy, then a run with your own `--var` values.
 - **Third-party outages**: pause the scenarios, then take the runs out of the figures.
 - **Support follow-up** on the tickets waiting for your answer.
 - **Scheduled exports** of availability figures or report PDFs from cron.
