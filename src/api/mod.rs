@@ -2,7 +2,6 @@
 
 #[expect(dead_code, reason = "alert types land with their commands")]
 pub mod alerts;
-#[expect(dead_code, reason = "availability types land with their commands")]
 pub mod availability;
 pub mod error;
 pub mod incidents;
