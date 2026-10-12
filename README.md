@@ -92,8 +92,7 @@ feed, checks it against `SHA256SUMS` and replaces the binary in place
 `TWOBEC_INSTALL_URL` name another feed); the completions and manual pages the
 installer put under `share/` are regenerated.
 
-From source: `cargo build --release` (add `--features keyring` for OS keyring
-support, which the release binaries include).
+From source: see [Building from source](#building-from-source).
 
 ## Quick start
 
@@ -173,16 +172,58 @@ Errors are one line on stderr; `--verbose` adds the cause chain and the
 API's trace id to quote in support requests. A route answering with
 `Deprecation` / `Sunset` headers gets a one-line warning once per invocation.
 
-## Contributing
+## Building from source
+
+You need [rustup](https://rustup.rs) and git. The repository pins the stable
+toolchain with clippy and rustfmt in `rust-toolchain.toml`, so rustup fetches
+it on the first build.
 
 ```sh
-cargo test                                                   # unit and end-to-end tests, no network
-cargo clippy --all-targets --all-features -- -D warnings
-./2bec.sh ping                                               # rebuilds on change and forwards args
+git clone https://github.com/2Be-FFICIENT/2bec.git
+cd 2bec
+cargo build --release --features keyring
+./target/release/2bec --version
 ```
 
-To cut a release, bump `version` in `Cargo.toml`, commit, and push a tag
-`v<version>`; the tag must match the manifest or the pipeline stops.
+The binary lands in `target/release/2bec` (`2bec.exe` on Windows). Without
+`--features keyring` it builds without OS keyring support and stores
+credentials only in the `0600` file. The release binaries include the keyring.
+
+To install it with its completions and manual pages:
+
+```sh
+install -m 755 target/release/2bec ~/.local/bin/
+2bec completion bash > ~/.local/share/bash-completion/completions/2bec
+2bec man --dir ~/.local/share/man/man1
+```
+
+`2bec completion --help` shows the lines for zsh, fish and PowerShell.
+
+> [!TIP]
+> To match the release builds, Linux binaries are static against musl. Install
+> `musl-tools` (Debian, Ubuntu) or `musl-gcc` (Fedora), then build with
+> `rustup target add x86_64-unknown-linux-musl` and
+> `cargo build --release --features keyring --target x86_64-unknown-linux-musl`.
+
+### Checks
+
+These are the checks CI runs. They need no network and no API key.
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test                      # unit and end-to-end tests against a mock server
+cargo test --features keyring
+cargo deny check                # licenses and advisories, needs cargo-deny
+```
+
+While working on a command, `./2bec.sh <args>` rebuilds when the sources change
+and runs the binary with your arguments.
+
+> [!NOTE]
+> Releases are cut from a tag. Bump `version` in `Cargo.toml`, merge, and push
+> a tag `v<version>`. The release pipeline stops if the tag and the manifest
+> disagree.
 
 ## License
 
