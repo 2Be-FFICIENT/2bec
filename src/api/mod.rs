@@ -11,6 +11,7 @@ pub mod me;
 pub mod metrics;
 pub mod neutralizations;
 pub mod page;
+pub mod people;
 pub mod planning;
 pub mod reports;
 #[expect(
