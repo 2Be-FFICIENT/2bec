@@ -133,7 +133,10 @@ async fn get_prints_the_rules_and_the_etag() {
         .args(["alerts", "get", ALERT, "--jq", ".etag"])
         .assert()
         .success()
-        .stdout(predicate::eq("\"W/\\\"7\\\"\"\n"));
+        // jq ends lines with CRLF on Windows.
+        .stdout(predicate::function(|s: &str| {
+            s.replace("\r\n", "\n") == "\"W/\\\"7\\\"\"\n"
+        }));
 }
 
 #[tokio::test(flavor = "multi_thread")]
