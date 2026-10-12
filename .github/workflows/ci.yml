@@ -4,7 +4,17 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "examples/**"
+      - ".github/dependabot.yml"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "examples/**"
+      - ".github/dependabot.yml"
   workflow_dispatch:
 
 concurrency:
