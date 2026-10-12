@@ -105,6 +105,8 @@ enum Command {
     Tags(commands::tags::TagsArgs),
     /// Support requests between the space and the platform's team
     Tickets(commands::tickets::TicketsArgs),
+    /// Replace this binary with the latest release (or a pinned version)
+    Upgrade(commands::upgrade::UpgradeArgs),
     /// The users of the space, their roles and access profile
     Users(commands::users::UsersArgs),
     /// Runtime variables: the named values the alert hooks receive
@@ -116,6 +118,8 @@ enum Command {
 #[tokio::main]
 async fn main() -> ExitCode {
     reset_sigpipe();
+    #[cfg(windows)]
+    upgrade::replace::remove_leftover();
     let cli = Cli::parse();
     let verbose = cli.verbose;
     match run(cli).await {
@@ -180,6 +184,7 @@ async fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Completion(args) => return commands::docs::completion(Cli::command(), args),
         Command::Man(args) => return commands::docs::man(Cli::command(), args),
+        Command::Upgrade(args) => return commands::upgrade::run(cli.timeout, args).await,
         _ => {}
     }
     let config_dir = config::config_dir()?;
@@ -231,7 +236,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Users(args) => commands::users::run(&ctx, args).await?,
         Command::Variables(args) => commands::variables::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
-        Command::Completion(_) | Command::Config(_) | Command::Man(_) => {
+        Command::Completion(_) | Command::Config(_) | Command::Man(_) | Command::Upgrade(_) => {
             unreachable!("handled above")
         }
         Command::Ping => {

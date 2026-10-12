@@ -21,6 +21,7 @@ pub mod security;
 pub mod settings;
 pub mod tags;
 pub mod tickets;
+pub mod upgrade;
 pub mod users;
 pub mod variables;
 pub mod webhooks;
