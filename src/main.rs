@@ -74,6 +74,8 @@ enum Command {
     Comments(commands::comments::CommentsArgs),
     /// Print a shell completion script (bash, zsh, fish, powershell, elvish)
     Completion(commands::docs::CompletionArgs),
+    /// Read and edit the config file, switch profiles
+    Config(commands::config::ConfigArgs),
     /// Streaks of consecutive failed runs
     Incidents(commands::incidents::IncidentsArgs),
     /// Planned non-observation windows and rules
@@ -155,6 +157,9 @@ async fn run(cli: Cli) -> Result<()> {
     };
     let settings = config::Settings::resolve(&overrides, &config);
     let store = auth::store::FileStore::in_dir(&config_dir);
+    if let Command::Config(args) = cli.command {
+        return commands::config::run(&config_dir, &config, &settings, &store, args);
+    }
     let mut credential = auth::resolve(cli.token.as_deref(), &settings.profile, &store)?;
     let skip_refresh = matches!(&cli.command, Command::Auth(a) if a.skips_refresh());
     if !skip_refresh {
@@ -190,7 +195,9 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Users(args) => commands::users::run(&ctx, args).await?,
         Command::Variables(args) => commands::variables::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
-        Command::Completion(_) | Command::Man(_) => unreachable!("handled above"),
+        Command::Completion(_) | Command::Config(_) | Command::Man(_) => {
+            unreachable!("handled above")
+        }
         Command::Ping => {
             let r = ctx.client()?.ping().await?;
             let name = serde_json::from_str::<serde_json::Value>(&r.body)
