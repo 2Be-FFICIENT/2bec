@@ -10,7 +10,8 @@ through the web interface.
 
 ## Install
 
-Every tagged version is published on the GitHub releases page as a single
+Every tagged version is published on the [GitHub releases
+page](https://github.com/2Be-FFICIENT/2bec/releases) as a single
 static binary per platform (Linux x64/arm64 as musl builds, macOS x64/arm64,
 Windows x64/arm64), with the shell completions and manual pages in the same
 archive and a `SHA256SUMS` file next to them.
