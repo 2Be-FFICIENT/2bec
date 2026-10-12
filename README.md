@@ -208,6 +208,20 @@ on creation: enabled, priority 10, text symbol, any of the tags, failed runs.
 Reads need `scenarios:read`, writes `indicators:write`; `tag-in-use` (409)
 without `--force`, `conflict` (409) on a duplicate name.
 
+## Users and access profiles
+
+```sh
+2bec users list --status locked --role "User Admin" -q smith   # paged; --all for everyone
+2bec users get <id>                                # roles, profile, sign-in method, 2FA, lock
+2bec profiles list                                 # groups (closed ones in brackets), scenarios, holders
+2bec profiles get <id>                             # the groups and the users holding it
+2bec security-settings                             # password rules, strong authentication, counts
+```
+
+Read only, all behind `users:read`. A user's id is the identity subject the
+administration history names as its actor; account administrators hold
+every role whatever `roles` lists. Deleted accounts are never listed.
+
 ## Metrics
 
 ```sh
