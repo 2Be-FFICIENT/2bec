@@ -47,7 +47,6 @@ fn me_ok() -> ResponseTemplate {
 fn cmd(server: &MockServer, dir: &TempDir) -> Command {
     let mut c = Command::cargo_bin("2bec").unwrap();
     c.isolate_env()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri());
     c
