@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod http;
 mod output;
+mod upgrade;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
