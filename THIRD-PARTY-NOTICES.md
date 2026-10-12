@@ -33,15 +33,16 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | compression-core | 0.4.33 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/Nullus157/async-compression> |
 | const-oid | 0.10.2 | Apache-2.0 OR MIT | Apache-2.0 | <https://github.com/RustCrypto/formats> |
 | cpufeatures | 0.3.1 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/RustCrypto/utils> |
-| crc32fast | 1.5.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/srijs/rust-crc32fast> |
+| crc32fast | 1.5.2 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/srijs/rust-crc32fast> |
 | crypto-common | 0.2.2 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/RustCrypto/traits> |
 | digest | 0.11.3 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/RustCrypto/traits> |
 | dirs | 7.0.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://codeberg.org/dirs/dirs-rs> |
 | dirs-sys | 0.5.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/dirs-dev/dirs-sys-rs> |
 | displaydoc | 0.2.7 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/yaahc/displaydoc> |
 | encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause | (Apache-2.0 OR MIT) AND BSD-3-Clause | <https://github.com/hsivonen/encoding_rs> |
+| filetime | 0.2.29 | MIT/Apache-2.0 | Apache-2.0 | <https://github.com/alexcrichton/filetime> |
 | equivalent | 1.0.2 | Apache-2.0 OR MIT | Apache-2.0 | <https://github.com/indexmap-rs/equivalent> |
-| flate2 | 1.1.9 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-lang/flate2-rs> |
+| flate2 | 1.1.10 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-lang/flate2-rs> |
 | fnv | 1.0.7 | Apache-2.0 OR MIT | Apache-2.0 | <https://github.com/servo/rust-fnv> |
 | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/servo/rust-url> |
 | futures-channel | 0.3.34 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-lang/futures-rs> |
@@ -63,6 +64,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | hyper | 1.12.0 | MIT | MIT | <https://github.com/hyperium/hyper> |
 | hyper-rustls | 0.27.9 | Apache-2.0 OR ISC OR MIT | Apache-2.0 | <https://github.com/rustls/hyper-rustls> |
 | hyper-util | 0.1.21 | MIT | MIT | <https://github.com/hyperium/hyper-util> |
+| linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Apache-2.0 | <https://github.com/sunfishcode/linux-raw-sys> |
 | icu_collections | 2.3.0 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
 | icu_locale_core | 2.3.0 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
 | icu_normalizer | 2.3.0 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
@@ -83,7 +85,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | log | 0.4.34 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-lang/log> |
 | memchr | 2.8.3 | Unlicense OR MIT | MIT | <https://github.com/BurntSushi/memchr> |
 | mime | 0.3.17 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/hyperium/mime> |
-| miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | Apache-2.0 | <https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide> |
+| miniz_oxide | 0.9.1 | MIT OR Zlib OR Apache-2.0 | Apache-2.0 | <https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide> |
 | mio | 1.2.4 | MIT | MIT | <https://github.com/tokio-rs/mio> |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/matklad/once_cell> |
 | open | 5.4.4 | MIT | MIT | <https://github.com/Byron/open-rs> |
@@ -102,6 +104,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | rustls-pki-types | 1.14.1 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rustls/pki-types> |
 | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rustls/rustls-platform-verifier> |
 | rustls-webpki | 0.103.15 | ISC | ISC | <https://github.com/rustls/webpki> |
+| rustix | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | Apache-2.0 | <https://github.com/bytecodealliance/rustix> |
 | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | Apache-2.0 | <https://github.com/dtolnay/ryu> |
 | serde | 1.0.229 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/serde-rs/serde> |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/serde-rs/serde> |
@@ -110,7 +113,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | serde_spanned | 1.1.2 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/toml-rs/toml> |
 | serde_urlencoded | 0.7.1 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/nox/serde_urlencoded> |
 | sha2 | 0.11.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/RustCrypto/hashes> |
-| simd-adler32 | 0.3.9 | MIT | MIT | <https://github.com/mcountryman/simd-adler32> |
+| simd-adler32 | 0.3.10 | MIT | MIT | <https://github.com/mcountryman/simd-adler32> |
 | slab | 0.4.12 | MIT | MIT | <https://github.com/tokio-rs/slab> |
 | smallvec | 1.16.3 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/servo/rust-smallvec> |
 | socket2 | 0.6.5 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-lang/socket2> |
@@ -118,6 +121,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | strsim | 0.11.1 | MIT | MIT | <https://github.com/rapidfuzz/strsim-rs> |
 | subtle | 2.6.1 | BSD-3-Clause | BSD-3-Clause | <https://github.com/dalek-cryptography/subtle> |
 | syn | 3.0.8 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/dtolnay/syn> |
+| tar | 0.4.46 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/composefs/tar-rs> |
 | sync_wrapper | 1.0.2 | Apache-2.0 | Apache-2.0 | <https://github.com/Actyx/sync_wrapper> |
 | synstructure | 0.14.0 | MIT | MIT | <https://github.com/mystor/synstructure> |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/dtolnay/thiserror> |
@@ -147,6 +151,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | want | 0.3.2 | MIT | MIT | <https://github.com/seanmonstar/want> |
 | winnow | 1.0.4 | MIT | MIT | <https://github.com/winnow-rs/winnow> |
 | writeable | 0.6.4 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
+| xattr | 1.6.1 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/Stebalien/xattr> |
 | yoke | 0.8.3 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
 | yoke-derive | 0.8.4 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
 | zerofrom | 0.1.8 | Unicode-3.0 | Unicode-3.0 | <https://github.com/unicode-org/icu4x> |
@@ -246,7 +251,7 @@ Copyright (c) 2020-2026 The RustCrypto Project Developers
 **cpufeatures 0.3.1**  
 Copyright (c) 2020-2026 The RustCrypto Project Developers
 
-**crc32fast 1.5.0**  
+**crc32fast 1.5.2**  
 Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
 
 **crypto-common 0.2.2**  
@@ -269,7 +274,10 @@ Copyright Mozilla Foundation
 **equivalent 1.0.2**  
 Copyright (c) 2016--2023
 
-**flate2 1.1.9**  
+**filetime 0.2.29**  
+Copyright (c) 2014 Alex Crichton
+
+**flate2 1.1.10**  
 Copyright (c) 2014-2026 Alex Crichton
 
 **fnv 1.0.7**  
@@ -402,7 +410,7 @@ Copyright (c) 2015 Andrew Gallant
 **mime 0.3.17**  
 Copyright (c) 2014 Sean McArthur
 
-**miniz_oxide 0.8.9**  
+**miniz_oxide 0.9.1**  
 Copyright 2013-2014 RAD Game Tools and Valve Software  
 Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC  
 Copyright (c) 2017 Frommi  
@@ -459,7 +467,7 @@ Copyright (c) 2016 Artyom Pavlov
 Copyright (c) 2009-2013 Mozilla Foundation  
 Copyright (c) 2006-2009 Graydon Hoare
 
-**simd-adler32 0.3.9**  
+**simd-adler32 0.3.10**  
 Copyright (c) [2021] [Marvin Countryman]
 
 **slab 0.4.12**  
@@ -484,6 +492,9 @@ Copyright (c) 2016-2017 Isis Agora Lovecruft, Henry de Valence. All rights reser
 Copyright (c) 2016-2024 Isis Agora Lovecruft. All rights reserved
 
 **synstructure 0.14.0**  
+
+**tar 0.4.46**  
+Copyright (c) The tar-rs Project Contributors
 Copyright 2016 Nika Layzell
 
 **tinystr 0.8.4**  
@@ -562,6 +573,9 @@ Copyright (c) 2018-2019 Sean McArthur
 
 **writeable 0.6.4**  
 Copyright © 2020-2024 Unicode, Inc
+
+**xattr 1.6.1**  
+Copyright (c) 2015 Steven Allen
 
 **yoke 0.8.3**  
 Copyright © 2020-2024 Unicode, Inc
