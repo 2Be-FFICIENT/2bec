@@ -380,9 +380,7 @@ fn authorize_url(
 async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
     loop {
         let (mut socket, _) = listener.accept().await.context("callback accept failed")?;
-        let mut buf = vec![0u8; 8192];
-        let n = socket.read(&mut buf).await.unwrap_or(0);
-        let request = String::from_utf8_lossy(&buf[..n]);
+        let request = read_request_head(&mut socket).await;
         let Some(target) = request
             .lines()
             .next()
@@ -412,6 +410,24 @@ async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
         }
         return outcome;
     }
+}
+
+/// Read the request line and headers: the request is only complete at the
+/// blank line, and a browser may deliver it in several segments.
+async fn read_request_head(socket: &mut tokio::net::TcpStream) -> String {
+    const MAX: usize = 8192;
+    let mut buf = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 1024];
+    loop {
+        match socket.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() >= MAX {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&buf).into_owned()
 }
 
 /// Extract the code from the callback parameters, checking state and errors.
