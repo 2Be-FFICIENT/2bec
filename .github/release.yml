@@ -1,0 +1,17 @@
+# Groups the release notes that `gh release create --generate-notes` writes
+# by pull request label.
+
+changelog:
+  exclude:
+    labels: [release]
+  categories:
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Documentation
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies, github_actions]
+    - title: Other changes
+      labels: ["*"]
