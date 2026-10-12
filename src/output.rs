@@ -98,7 +98,10 @@ fn filter_with_jq<T: Serialize>(value: &T, expr: &str) -> Result<()> {
             .stdin
             .take()
             .ok_or_else(|| anyhow::anyhow!("no jq stdin"))?;
-        // A closed pipe (jq failed on the expression) is reported by the exit status.
+        // A closed pipe (jq refused the expression and left) is reported by
+        // the exit status below, so the write must come back with EPIPE
+        // rather than end the process with SIGPIPE, which main() restored.
+        let _guard = IgnoreSigpipe::new();
         let _ = serde_json::to_writer(&mut stdin, value);
         let _ = stdin.write_all(b"\n");
     }
@@ -109,6 +112,33 @@ fn filter_with_jq<T: Serialize>(value: &T, expr: &str) -> Result<()> {
         anyhow::bail!("jq exited with {}", status.code().unwrap_or(1));
     }
     Ok(())
+}
+
+/// Ignores `SIGPIPE` while alive and puts the default disposition back
+/// after, so a write to a pipe its reader closed fails instead of killing
+/// the process. No-op elsewhere than unix.
+struct IgnoreSigpipe;
+
+impl IgnoreSigpipe {
+    fn new() -> Self {
+        #[cfg(unix)]
+        // SAFETY: `signal` with SIG_IGN has no preconditions; no other
+        // thread of the process writes to a pipe meanwhile.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        }
+        Self
+    }
+}
+
+impl Drop for IgnoreSigpipe {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        // SAFETY: as above, restoring what main() set.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
+    }
 }
 
 /// A simple column table. On a TTY, columns are padded and headers bold;
@@ -254,5 +284,33 @@ mod tests {
         assert_eq!(or_dash(None), "-");
         assert_eq!(or_dash(Some("")), "-");
         assert_eq!(or_dash(Some("x")), "x");
+    }
+
+    /// A jq that leaves before reading, while the JSON is larger than the
+    /// pipe buffer, so the write runs into the closed pipe: the failure must
+    /// come back as jq's exit status, not end the process with SIGPIPE.
+    #[cfg(unix)]
+    #[test]
+    fn a_jq_that_leaves_early_is_reported_by_its_status() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("jq");
+        std::fs::write(&fake, "#!/bin/sh\nexit 3\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!(
+            "{}:{}",
+            dir.path().display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        // The disposition main() sets; the test harness leaves it ignored.
+        // SAFETY: restoring the default has no preconditions.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
+        // SAFETY: the unit tests of this binary never spawn jq otherwise.
+        unsafe { std::env::set_var("PATH", path) };
+        let big = vec!["x".repeat(1024); 1024];
+        let err = filter_with_jq(&big, ".").unwrap_err();
+        assert_eq!(err.to_string(), "jq exited with 3");
     }
 }
