@@ -222,6 +222,26 @@ Read only, all behind `users:read`. A user's id is the identity subject the
 administration history names as its actor; account administrators hold
 every role whatever `roles` lists. Deleted accounts are never listed.
 
+## Audit, comments and tickets
+
+```sh
+2bec audit list --period last7d --area tags --area badges   # who did what; last 30 days by default
+2bec audit list --actor <user-id> --outcome failed --source api -q threshold
+2bec audit get 42                                  # the entry with the state before and after
+2bec comments list --period lastMonth --outcome failed -q "false positive"   # across scenarios
+2bec tickets list --view open                      # support requests; --kind, --scenario
+2bec tickets get 7                                 # the request and its conversation
+```
+
+The history needs `audit:read` and shows the areas the key's scopes unlock
+(reports, events and notifications with that scope alone; an area needing a
+role with the write scope implying it). Entry and request ids are numbers,
+not GUIDs. The comments feed needs `runs:read` and covers the scenarios the
+key sees, or `--scenario` (100 at most); the comments of one run are under
+`runs comments`. Tickets need `scenarios:read` and answer
+`tickets-not-enabled` (403) until the space's administrators ask for the
+page.
+
 ## Metrics
 
 ```sh
