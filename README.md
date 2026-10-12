@@ -23,10 +23,35 @@ $ 2bec runs get <run> --jq '.steps[] | [.label, .durationMs] | @tsv'
 
 ### When it helps
 
-- **Checking on things** without opening the browser, such as last night's failures or an open incident.
-- **Continuous integration (CI) gates** that start a smoke run and fail the pipeline on the exit code.
-- **Scheduled exports** of SLA figures or report PDFs from cron.
-- **Your own tooling** fed with `--json`, or shaped on the spot with `--jq`.
+You set up monitoring in the web app. `2bec` covers the moments around it,
+when a shell, a pipeline or a cron job is closer at hand than a browser.
+
+**Day to day**
+
+| Situation | Command |
+|-----------|---------|
+| Morning check: what is still failing since last night | `2bec incidents list --ongoing` |
+| Why a run failed, without opening the replay | `2bec runs diagnosis <run> --opale` |
+| The video of a failure, attached to a bug report | `2bec runs download <run> video` |
+| Support requests waiting for your answer | `2bec tickets list --view waiting` |
+
+**Around a change**
+
+| Situation | Command |
+|-----------|---------|
+| A release tonight, with no false alerts and no dip in availability | `2bec interruptions create --scenario <id> --start <t> --end <t>` |
+| A note on the curves so the dip is explained later | `2bec planning events create --title "Release 4.2" --start <t> --ref CHG-1234` |
+| An on-demand run once the release is out | `2bec runs trigger <scenario> --wait` |
+| A third party is down and the alerts keep coming | `2bec planning pause <scenario>` |
+
+**After the fact**
+
+| Situation | Command |
+|-----------|---------|
+| Taking a known outage out of the availability figures | `2bec neutralizations apply --from <t> --to <t> --dry-run` |
+| Last month's availability for a service review | `2bec metrics availability --period lastMonth --granularity week` |
+| A webhook receiver that missed events | `2bec webhooks deliveries list <webhook> --status failed` |
+| Who changed an alert, and when | `2bec audit list --area alerts --period last7d` |
 
 > [!NOTE]
 > `2bec` is a client, not an administration console. API keys are created
