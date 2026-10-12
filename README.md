@@ -470,6 +470,10 @@ token for one invocation.
 Errors are one line on stderr; `--verbose` adds the cause chain and the
 API's trace id to quote in support requests.
 
+When a route answers with `Deprecation` / `Sunset` headers, a one-line
+warning on stderr names the route, the removal date and the changelog link,
+once per invocation.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
