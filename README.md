@@ -225,6 +225,30 @@ and runs the binary with your arguments.
 > a tag `v<version>`. The release pipeline stops if the tag and the manifest
 > disagree.
 
+## Security
+
+> [!IMPORTANT]
+> Report vulnerabilities privately to **security@2befficient.fr**, not in a
+> public issue. [SECURITY.md](SECURITY.md) lists what to include and the
+> response times. Only the latest release receives security fixes.
+
+How `2bec` handles what it is trusted with:
+
+- **Credentials** go into `hosts.toml` under the config directory with `0600`
+  permissions, or into the OS keyring with `credential_store = "keyring"`.
+- **Tokens are never printed.** `auth status` shows who you are, not the
+  token, and `--help` does not echo the value of `TWOBEC_TOKEN`.
+- **Connections** use HTTPS through rustls. No OpenSSL is involved.
+- **Upgrades and installs** check each archive against the release's
+  `SHA256SUMS` before replacing anything.
+- **Dependencies** are checked by `cargo deny` in CI for licenses and known
+  advisories. Dependabot opens weekly update pull requests.
+
+> [!WARNING]
+> The `SHA256SUMS` check protects against corrupted downloads, not against a
+> compromised feed, because the sums come over the same HTTPS connection.
+> Releases are not signed yet.
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE). Third-party crates
