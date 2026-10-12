@@ -27,6 +27,12 @@ release() {
     mkdir -p "$stage"
     printf '#!/bin/sh\necho "2bec %s"\n' "$version" > "$stage/2bec"
     chmod 755 "$stage/2bec"
+    mkdir -p "$stage/completions" "$stage/man/man1"
+    for shell in bash zsh fish powershell elvish; do
+        printf '# %s completion of 2bec %s\n' "$shell" "$version" > "$stage/completions/2bec.$shell"
+    done
+    printf '.TH 2BEC 1\n.SH NAME\n2bec %s\n' "$version" > "$stage/man/man1/2bec.1"
+    printf '.TH 2BEC-AUTH 1\n' > "$stage/man/man1/2bec-auth.1"
     tar -C "$tmp/stage" -czf "$dir/2bec-$version-$platform.tar.gz" "2bec-$version-$platform"
     (cd "$dir" && sha256sum ./* | sed 's|\./||' > SHA256SUMS)
     rm -rf "$tmp/stage"
@@ -49,13 +55,29 @@ feed="http://127.0.0.1:$port"
 
 fail() { echo "FAIL: $*"; exit 1; }
 
-# 1. The latest version lands in the install directory.
+# 1. The latest version lands in the install directory, its completions and manual pages in the
+#    share directory beside it (the bin's sibling, as /usr/local/bin and /usr/local/share).
 TWOBEC_INSTALL_URL="$feed" TWOBEC_INSTALL_DIR="$tmp/bin" sh "$root/install.sh"
 [[ "$("$tmp/bin/2bec" --version)" == "2bec 0.2.0" ]] || fail "latest: expected 2bec 0.2.0, got $("$tmp/bin/2bec" --version)"
+share="$tmp/share"
+for f in bash-completion/completions/2bec zsh/site-functions/_2bec fish/vendor_completions.d/2bec.fish man/man1/2bec.1 man/man1/2bec-auth.1; do
+    [[ -f "$share/$f" ]] || fail "latest: $share/$f was not installed"
+done
+grep -q "0.2.0" "$share/bash-completion/completions/2bec" || fail "latest: the bash completion is not the 0.2.0 one"
+for entry in "$share"/*; do
+    case "$(basename "$entry")" in bash-completion | zsh | fish | man) ;; *) fail "latest: unexpected entry $entry" ;; esac
+done
 
-# 2. A pinned version, with or without its v, replaces it.
+# 2. A pinned version, with or without its v, replaces it and its completions.
 TWOBEC_INSTALL_URL="$feed" TWOBEC_INSTALL_DIR="$tmp/bin" TWOBEC_VERSION=v0.1.0 sh "$root/install.sh"
 [[ "$("$tmp/bin/2bec" --version)" == "2bec 0.1.0" ]] || fail "pinned: expected 2bec 0.1.0"
+grep -q "0.1.0" "$share/bash-completion/completions/2bec" || fail "pinned: the bash completion was not replaced"
+
+# 2b. A bin that is not a share's sibling falls back to ~/.local/share; TWOBEC_INSTALL_COMPLETIONS=0 writes none.
+HOME="$tmp/home" TWOBEC_INSTALL_URL="$feed" TWOBEC_INSTALL_DIR="$tmp/elsewhere" sh "$root/install.sh"
+[[ -f "$tmp/home/.local/share/man/man1/2bec.1" ]] || fail "fallback: the manual page is not under ~/.local/share"
+HOME="$tmp/home2" TWOBEC_INSTALL_URL="$feed" TWOBEC_INSTALL_DIR="$tmp/bin2" TWOBEC_INSTALL_COMPLETIONS=0 sh "$root/install.sh"
+[[ ! -e "$tmp/share2" && ! -e "$tmp/home2/.local/share" ]] || fail "opt-out: completions were installed anyway"
 
 # 3. A corrupt archive is refused and the installed binary stays.
 printf 'garbage' >> "$tmp/feed/releases/0.2.0/2bec-0.2.0-$platform.tar.gz"
@@ -71,4 +93,4 @@ if TWOBEC_INSTALL_URL="$feed/nowhere" TWOBEC_INSTALL_DIR="$tmp/bin" sh "$root/in
 fi
 grep -q "github.com/2Be-FFICIENT/2bec/releases" "$tmp/err" || fail "the fallback message lacks the releases page: $(cat "$tmp/err")"
 
-echo "install.sh: 4 checks passed"
+echo "install.sh: 6 checks passed"

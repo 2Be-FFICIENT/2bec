@@ -24,7 +24,10 @@ web app.
 
 One line, from the API's release feed (`install/`: the scripts check the archive
 against its `SHA256SUMS`; `TWOBEC_VERSION` pins a version, `TWOBEC_INSTALL_DIR`
-chooses the directory):
+chooses the directory). On Linux and macOS the completions for bash, zsh and
+fish and the manual pages go under the matching `share` directory
+(`/usr/local/share` or `~/.local/share`; `TWOBEC_INSTALL_COMPLETIONS=0` skips
+them, and zsh needs its `site-functions` directory on `fpath`):
 
 ```sh
 curl -fsSL https://api.2befficient.com/cli/install.sh | sh

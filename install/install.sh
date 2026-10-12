@@ -5,13 +5,16 @@
 #
 # It reads the latest version from the release feed, downloads the archive of this platform
 # and its SHA256SUMS, checks the archive against them, and puts the binary in a directory of
-# the PATH. Nothing else is written. Linux (x64, arm64, static) and macOS (x64, arm64); on
-# Windows: irm https://api.2befficient.com/cli/install.ps1 | iex
+# the PATH. The shell completions (bash, zsh, fish) and the manual pages of the archive go
+# next to it: under /usr/local/share for a system install, under ~/.local/share otherwise;
+# zsh only reads its directory once it is on fpath, which the script says. Linux (x64, arm64,
+# static) and macOS (x64, arm64); on Windows: irm https://api.2befficient.com/cli/install.ps1 | iex
 #
 # Environment:
-#   TWOBEC_VERSION       a version to install (0.1.0) instead of the latest
-#   TWOBEC_INSTALL_DIR   where the binary goes (default: /usr/local/bin when writable, else ~/.local/bin)
-#   TWOBEC_INSTALL_URL   the release feed (default: https://api.2befficient.com/cli)
+#   TWOBEC_VERSION              a version to install (0.1.0) instead of the latest
+#   TWOBEC_INSTALL_DIR          where the binary goes (default: /usr/local/bin when writable, else ~/.local/bin)
+#   TWOBEC_INSTALL_URL          the release feed (default: https://api.2befficient.com/cli)
+#   TWOBEC_INSTALL_COMPLETIONS  0 to leave the completions and the manual pages out
 #
 # This file is served by the API from the copy vendored in the pegas repository; this
 # repository is its source of truth.
@@ -99,7 +102,8 @@ if [ "$expected" != "$actual" ]; then
 fi
 
 tar -xzf "$tmp/$name" -C "$tmp"
-binary="$tmp/2bec-$version-$platform/2bec"
+unpacked="$tmp/2bec-$version-$platform"
+binary="$unpacked/2bec"
 [ -f "$binary" ] || die "the archive holds no 2bec binary"
 
 # Where it goes: the system directory when the caller may write it, else the user's own.
@@ -121,4 +125,34 @@ case ":$PATH:" in
     *":$dir:"*) ;;
     *) say "Add $dir to your PATH, for instance: export PATH=\"$dir:\$PATH\"" ;;
 esac
-say "Shell completions: 2bec completion bash|zsh|fish (see 2bec completion --help). Next: 2bec auth login"
+
+# The completions and the manual pages, next to the binary: the share directory of a system
+# install (/usr/local/bin -> /usr/local/share), the user's own otherwise.
+# put SOURCE DIR NAME: copies a file of the archive when it is there.
+put() {
+    [ -f "$1" ] || return 0
+    if ! { mkdir -p "$2" && cp "$1" "$2/$3" && chmod 644 "$2/$3"; } 2>/dev/null; then
+        say "Could not write $2/$3 (skipped)"
+    fi
+}
+if [ "${TWOBEC_INSTALL_COMPLETIONS:-1}" != 0 ]; then
+    share="$HOME/.local/share"
+    case "$dir" in
+        */bin)
+            # The share directory beside a system bin, when it (or its parent, to create it) is writable.
+            candidate="${dir%/bin}/share"
+            if [ -w "$candidate" ] || { [ ! -e "$candidate" ] && [ -w "${dir%/bin}" ]; }; then share="$candidate"; fi
+            ;;
+    esac
+    put "$unpacked/completions/2bec.bash" "$share/bash-completion/completions" 2bec
+    put "$unpacked/completions/2bec.zsh" "$share/zsh/site-functions" _2bec
+    put "$unpacked/completions/2bec.fish" "$share/fish/vendor_completions.d" 2bec.fish
+    for page in "$unpacked"/man/man1/*.1; do
+        put "$page" "$share/man/man1" "$(basename "$page")"
+    done
+    say "Completions and manual pages under $share (bash and fish load them on the next shell)"
+    case "${SHELL:-}" in
+        */zsh) say "zsh: add to ~/.zshrc before compinit: fpath=(\"$share/zsh/site-functions\" \$fpath)" ;;
+    esac
+fi
+say "Next: 2bec auth login"
