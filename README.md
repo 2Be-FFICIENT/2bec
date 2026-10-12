@@ -2,6 +2,11 @@
 
 **A command-line client for the 2Be-FFICIENT public API.**
 
+[![Release](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.2befficient.com%2Fcli%2Freleases%2Flatest&query=%24.version&label=release&prefix=v&color=blue)](https://github.com/2Be-FFICIENT/2bec/releases)
+[![CI](https://github.com/2Be-FFICIENT/2bec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/2Be-FFICIENT/2bec/actions/workflows/ci.yml)
+![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macOS%20%7C%20windows-lightgrey)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+
 [Install](#install) · [Quick start](#quick-start) · [Commands](#commands) · [Examples](examples/README.md) · [API docs](https://api.2befficient.com/docs)
 
 `2bec` gives you the monitoring platform's API (`/v2`) from a shell. Each
