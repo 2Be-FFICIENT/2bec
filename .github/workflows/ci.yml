@@ -35,6 +35,18 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  deny:
+    name: Dependencies (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: cargo deny check
+        run: cargo deny --locked check
+
   test:
     name: Test (${{ matrix.name }})
     needs: lint
@@ -94,7 +106,7 @@ jobs:
   ci-ok:
     name: CI passed
     if: always()
-    needs: [lint, test]
+    needs: [lint, deny, test]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
