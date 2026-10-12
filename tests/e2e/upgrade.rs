@@ -93,6 +93,7 @@ fn pack(version: &str) -> Vec<u8> {
     buf
 }
 
+#[cfg(unix)]
 fn sha256(bytes: &[u8]) -> String {
     use sha2::Digest as _;
     sha2::Sha256::digest(bytes)
@@ -253,7 +254,8 @@ async fn upgrades_the_binary_in_place_and_refreshes_the_extras() {
         .success()
         .stdout(predicate::str::contains(format!(
             "Upgraded 2bec from {CURRENT} to 9.9.9 (2bec 9.9.9 at {}",
-            binary.display()
+            // The command names the canonical path (macOS: /private/var/...).
+            binary.canonicalize().unwrap().display()
         )))
         .stdout(predicate::str::contains(
             "Refreshed the completions and manual pages",
