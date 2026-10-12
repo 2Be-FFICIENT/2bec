@@ -1,6 +1,6 @@
 [package]
 name = "twobec"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "Command-line client for the 2Be-FFICIENT API"
 license = "Apache-2.0"
