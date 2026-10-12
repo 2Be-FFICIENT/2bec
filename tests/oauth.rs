@@ -2,8 +2,11 @@
 //! and a mock API. The "browser" is a plain HTTP request to the loopback
 //! callback. No network.
 
+mod common;
+
 use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
+use common::IsolatedEnv;
 use predicates::prelude::*;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -96,7 +99,7 @@ async fn browser_login_exchanges_the_code_and_stores_the_tokens() {
     let dir = TempDir::new().unwrap();
 
     let mut child = Command::new(cargo_bin!("2bec"))
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "login", "--no-browser"])
@@ -198,7 +201,7 @@ async fn expired_login_is_renewed_before_the_command_runs() {
 
     assert_cmd::Command::cargo_bin("2bec")
         .unwrap()
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "token"])
@@ -243,7 +246,7 @@ async fn failed_renewal_warns_and_keeps_going() {
 
     assert_cmd::Command::cargo_bin("2bec")
         .unwrap()
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "token"])
@@ -280,7 +283,7 @@ async fn logout_revokes_the_refresh_token() {
 
     assert_cmd::Command::cargo_bin("2bec")
         .unwrap()
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "logout"])
@@ -318,7 +321,7 @@ async fn status_shows_the_person_login() {
 
     assert_cmd::Command::cargo_bin("2bec")
         .unwrap()
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "status"])
@@ -405,7 +408,7 @@ async fn device_login_polls_until_approved_and_stores_the_tokens() {
 
     let started = std::time::Instant::now();
     Command::new(cargo_bin!("2bec"))
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "login", "--device"])
@@ -444,7 +447,7 @@ async fn device_login_declined_in_the_browser_fails() {
     let dir = TempDir::new().unwrap();
 
     Command::new(cargo_bin!("2bec"))
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "login", "--device"])
@@ -470,7 +473,7 @@ async fn device_login_explains_a_client_without_the_grant() {
     let dir = TempDir::new().unwrap();
 
     Command::new(cargo_bin!("2bec"))
-        .env_clear()
+        .isolate_env()
         .env("TWOBEC_CONFIG_DIR", dir.path())
         .env("TWOBEC_API_URL", server.uri())
         .args(["auth", "login", "--device"])
