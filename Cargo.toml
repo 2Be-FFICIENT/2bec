@@ -42,3 +42,6 @@ wiremock = "0.6.5"
 
 [features]
 keyring = ["dep:keyring"]
+
+[target."cfg(unix)".dependencies]
+libc = "0.2.190"
