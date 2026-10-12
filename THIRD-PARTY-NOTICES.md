@@ -52,7 +52,7 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-random/getrandom> |
 | getrandom | 0.3.4 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-random/getrandom> |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-random/getrandom> |
-| h2 | 0.4.14 | MIT | MIT | <https://github.com/hyperium/h2> |
+| h2 | 0.4.20 | MIT | MIT | <https://github.com/hyperium/h2> |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rust-lang/hashbrown> |
 | heck | 0.5.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/withoutboats/heck> |
 | http | 1.5.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/hyperium/http> |
@@ -97,11 +97,11 @@ Dev-only dependencies (test harnesses, mock servers) are not part of the shipped
 | reqwest | 0.13.5 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/seanmonstar/reqwest> |
 | rpassword | 7.5.4 | Apache-2.0 | Apache-2.0 | <https://github.com/conradkleinespel/rpassword> |
 | rtoolbox | 0.0.6 | Apache-2.0 | Apache-2.0 | <https://github.com/conradkleinespel/rtoolbox> |
-| rustls | 0.23.40 | Apache-2.0 OR ISC OR MIT | Apache-2.0 | <https://github.com/rustls/rustls> |
+| rustls | 0.23.45 | Apache-2.0 OR ISC OR MIT | Apache-2.0 | <https://github.com/rustls/rustls> |
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT | Apache-2.0 | <https://github.com/rustls/rustls-native-certs> |
 | rustls-pki-types | 1.14.1 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rustls/pki-types> |
 | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/rustls/rustls-platform-verifier> |
-| rustls-webpki | 0.103.13 | ISC | ISC | <https://github.com/rustls/webpki> |
+| rustls-webpki | 0.103.15 | ISC | ISC | <https://github.com/rustls/webpki> |
 | ryu | 1.0.23 | Apache-2.0 OR BSL-1.0 | Apache-2.0 | <https://github.com/dtolnay/ryu> |
 | serde | 1.0.229 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/serde-rs/serde> |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | Apache-2.0 | <https://github.com/serde-rs/serde> |
