@@ -6,7 +6,7 @@ mod http;
 mod output;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use std::process::ExitCode;
 
 /// 2bec - command-line client for the 2Be-FFICIENT API.
@@ -72,10 +72,14 @@ enum Command {
     Badges(commands::badges::BadgesArgs),
     /// The team's comments on the runs, across scenarios
     Comments(commands::comments::CommentsArgs),
+    /// Print a shell completion script (bash, zsh, fish, powershell, elvish)
+    Completion(commands::docs::CompletionArgs),
     /// Streaks of consecutive failed runs
     Incidents(commands::incidents::IncidentsArgs),
     /// Planned non-observation windows and rules
     Interruptions(commands::interruptions::InterruptionsArgs),
+    /// Print or install the manual pages
+    Man(commands::docs::ManArgs),
     /// Availability, response times, voice quality and social figures over a period
     Metrics(commands::metrics::MetricsArgs),
     /// Set runs apart from the indicators, and undo it
@@ -137,6 +141,12 @@ fn report_error(err: &anyhow::Error, verbose: bool) {
 }
 
 async fn run(cli: Cli) -> Result<()> {
+    // Local commands: no config, no credential, no network.
+    match cli.command {
+        Command::Completion(args) => return commands::docs::completion(Cli::command(), args),
+        Command::Man(args) => return commands::docs::man(Cli::command(), args),
+        _ => {}
+    }
     let config_dir = config::config_dir()?;
     let config = config::Config::load(&config_dir.join(config::CONFIG_FILE))?;
     let overrides = config::Overrides {
@@ -180,6 +190,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Users(args) => commands::users::run(&ctx, args).await?,
         Command::Variables(args) => commands::variables::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
+        Command::Completion(_) | Command::Man(_) => unreachable!("handled above"),
         Command::Ping => {
             let r = ctx.client()?.ping().await?;
             let name = serde_json::from_str::<serde_json::Value>(&r.body)
