@@ -394,6 +394,20 @@ created it, so it only carries the events that key's scopes allow. The URL
 must be https on a public host; that, the event kinds and the description
 length are checked before calling. Every command needs `webhooks:write`.
 
+## Shell completions and manual pages
+
+Both are generated from the command definitions, so they always match `--help`:
+
+```sh
+2bec completion bash > ~/.local/share/bash-completion/completions/2bec
+2bec completion zsh > "${fpath[1]}/_2bec"
+2bec completion fish > ~/.config/fish/completions/2bec.fish
+2bec completion powershell >> $PROFILE
+
+2bec man | man -l -                       # read the main page now
+2bec man --dir ~/.local/share/man/man1    # install one page per command
+```
+
 ## Configuration
 
 Settings are resolved in this order: flags, then `TWOBEC_*` environment
