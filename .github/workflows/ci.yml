@@ -85,7 +85,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.name }})
-    needs: [lint, platforms]
+    needs: platforms
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
