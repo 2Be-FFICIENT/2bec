@@ -57,32 +57,40 @@ jobs:
       - name: cargo deny check
         run: cargo deny --locked check
 
+  # Pull requests test one platform per operating system; pushes to main
+  # and tags run the full matrix.
+  platforms:
+    name: Pick the platforms
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        run: |
+          core='[
+            {"name":"linux-x64","os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},
+            {"name":"macos-arm64","os":"macos-latest","target":"aarch64-apple-darwin"},
+            {"name":"windows-x64","os":"windows-latest","target":"x86_64-pc-windows-msvc"}'
+          extra=',
+            {"name":"linux-arm64","os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu"},
+            {"name":"macos-x64","os":"macos-15-intel","target":"x86_64-apple-darwin"},
+            {"name":"windows-arm64","os":"windows-11-arm","target":"aarch64-pc-windows-msvc"}'
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            matrix="$core]"
+          else
+            matrix="$core$extra]"
+          fi
+          echo "matrix=$(jq -c . <<< "$matrix")" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test (${{ matrix.name }})
-    needs: lint
+    needs: [lint, platforms]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: linux-x64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - name: linux-arm64
-            os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-          - name: macos-x64
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-          - name: macos-arm64
-            os: macos-latest
-            target: aarch64-apple-darwin
-          - name: windows-x64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - name: windows-arm64
-            os: windows-11-arm
-            target: aarch64-pc-windows-msvc
+        include: ${{ fromJSON(needs.platforms.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -104,7 +112,7 @@ jobs:
   ci-ok:
     name: CI passed
     if: always()
-    needs: [lint, deny, test]
+    needs: [lint, deny, platforms, test]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
