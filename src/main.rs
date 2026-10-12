@@ -80,14 +80,21 @@ enum Command {
     Ping,
     /// Timeline, emergency stop and dated notes on the scenarios
     Planning(commands::planning::PlanningArgs),
+    /// Access profiles: which scenario groups the users see
+    Profiles(commands::profiles::ProfilesArgs),
     /// Saved reports, their data and PDFs, scheduled e-mails and deliveries
     Reports(commands::reports::ReportsArgs),
     /// List and inspect scenario runs
     Runs(commands::runs::RunsArgs),
     /// Browse the catalog of scenarios and their groups
     Scenarios(commands::scenarios::ScenariosArgs),
+    /// The sign-in policy: password rules and strong authentication
+    #[command(name = "security-settings")]
+    SecuritySettings(commands::security::SecuritySettingsArgs),
     /// Tags a run may carry: the space's own, the robots' and the platform's
     Tags(commands::tags::TagsArgs),
+    /// The users of the space, their roles and access profile
+    Users(commands::users::UsersArgs),
     /// Runtime variables: the named values the alert hooks receive
     Variables(commands::variables::VariablesArgs),
     /// Webhooks: subscriptions of your URLs to events, secrets, deliveries
@@ -156,10 +163,13 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
         Command::Neutralizations(args) => commands::neutralizations::run(&ctx, args).await?,
         Command::Planning(args) => commands::planning::run(&ctx, args).await?,
+        Command::Profiles(args) => commands::profiles::run(&ctx, args).await?,
         Command::Reports(args) => commands::reports::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
+        Command::SecuritySettings(args) => commands::security::run(&ctx, args).await?,
         Command::Tags(args) => commands::tags::run(&ctx, args).await?,
+        Command::Users(args) => commands::users::run(&ctx, args).await?,
         Command::Variables(args) => commands::variables::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
         Command::Ping => {
