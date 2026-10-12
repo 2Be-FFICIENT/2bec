@@ -29,3 +29,14 @@ pub mod scopes;
 pub mod settings;
 pub mod variables;
 pub mod webhooks;
+
+/// Reads an explicit `null` as the type's default, for fields the API declares nullable but the
+/// client keeps as a plain value (an empty list rather than `Option<Vec<_>>`). Pair it with
+/// `#[serde(default)]` so a missing field reads the same way.
+pub fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + serde::Deserialize<'de>,
+{
+    Ok(<Option<T> as serde::Deserialize>::deserialize(deserializer)?.unwrap_or_default())
+}

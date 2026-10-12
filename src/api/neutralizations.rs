@@ -18,18 +18,34 @@ pub const SELECTION_STATUSES: [&str; 3] = ["any", "ok", "failed"];
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunSelection {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "super::null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub scenario: Vec<String>,
     pub from: Option<String>,
     pub to: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "super::null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub failed_step: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "super::null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tag: Vec<String>,
     /// ISO weekdays, 1 = Monday.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "super::null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub weekdays: Vec<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub day_start: Option<String>,
@@ -151,5 +167,16 @@ mod tests {
                 "expectedMatched": 3, "cap": "c1"
             })
         );
+    }
+
+    #[test]
+    fn stored_selection_reads_null_lists_as_empty() {
+        let s: RunSelection = serde_json::from_value(serde_json::json!({
+            "scenario": ["s1"], "from": null, "to": null, "status": "any",
+            "failedStep": null, "tag": null, "weekdays": null, "dayStart": null, "dayStop": null
+        }))
+        .unwrap();
+        assert_eq!(s.scenario, vec!["s1".to_string()]);
+        assert!(s.failed_step.is_empty() && s.tag.is_empty() && s.weekdays.is_empty());
     }
 }
