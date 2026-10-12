@@ -22,9 +22,23 @@ web app.
 
 ## Install
 
+One line, from the API's release feed (`install/`: the scripts check the archive
+against its `SHA256SUMS`; `TWOBEC_VERSION` pins a version, `TWOBEC_INSTALL_DIR`
+chooses the directory):
+
+```sh
+curl -fsSL https://api.2befficient.com/cli/install.sh | sh
+```
+
+```powershell
+irm https://api.2befficient.com/cli/install.ps1 | iex
+```
+
 Each [release](https://github.com/2Be-FFICIENT/2bec/releases) ships a static
 binary per platform (Linux x64/arm64, macOS x64/arm64, Windows x64/arm64) with
-the completions and manual pages in the archive and a `SHA256SUMS` next to it.
+the completions and manual pages in the archive and a `SHA256SUMS` next to it;
+the feed serves the same archives at
+`https://api.2befficient.com/cli/releases/<version>/<archive>`. By hand:
 
 ```sh
 tar xzf 2bec-<version>-linux-x64.tar.gz

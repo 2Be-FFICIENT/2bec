@@ -46,6 +46,16 @@ jobs:
         run: cargo fmt --all -- --check
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: shellcheck the installer
+        run: shellcheck install/install.sh install/test.sh
+      - name: Parse the PowerShell installer
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [Management.Automation.Language.Parser]::ParseFile("$PWD/install/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.Message }; exit 1 }
+      - name: Install from a fake release feed
+        run: bash install/test.sh
 
   deny:
     name: Dependencies (cargo-deny)
