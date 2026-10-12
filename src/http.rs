@@ -245,6 +245,7 @@ impl Client {
     ) -> Result<(Option<String>, u64), ApiError> {
         let url = self.url(path);
         let mut r = self.inner.get(&url).query(query).send().await?;
+        warn_if_deprecated(r.url().path(), r.headers());
         let status = r.status().as_u16();
         if !(200..300).contains(&status) {
             let retry_after = header_u64(r.headers(), RETRY_AFTER.as_str());
@@ -265,6 +266,7 @@ impl Client {
 
     /// Turn a response into `Ok` for 2xx or a typed `ApiError` otherwise.
     async fn classify(r: reqwest::Response) -> Result<Response, ApiError> {
+        warn_if_deprecated(r.url().path(), r.headers());
         let status = r.status().as_u16();
         let rate_limit = parse_rate_limit(r.headers());
         let retry_after = header_u64(r.headers(), RETRY_AFTER.as_str());
@@ -349,6 +351,108 @@ fn random_key() -> String {
     out
 }
 
+/// The removal notice an operation carries (RFC 9745 `Deprecation`,
+/// RFC 8594 `Sunset`, and a `Link rel="deprecation"` to the explanation).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Deprecation {
+    /// When the deprecation took effect, as the server wrote it, if dated.
+    pub since: Option<String>,
+    /// HTTP-date after which the operation stops answering.
+    pub sunset: Option<String>,
+    /// Where the change is documented.
+    pub link: Option<String>,
+}
+
+impl Deprecation {
+    /// Read the notice from the response headers, if any.
+    pub fn from_headers(headers: &HeaderMap) -> Option<Self> {
+        let deprecation = header_string(headers, "deprecation");
+        let sunset = header_string(headers, "sunset");
+        if deprecation.is_none() && sunset.is_none() {
+            return None;
+        }
+        // RFC 9745 writes `@<unix seconds>`; earlier drafts used an
+        // HTTP-date or the bare word `true`.
+        let since = deprecation.and_then(|d| {
+            let d = d.trim().trim_matches('"').to_string();
+            if d.eq_ignore_ascii_case("true") || d.is_empty() {
+                None
+            } else if let Some(secs) = d.strip_prefix('@').and_then(|n| n.parse::<i64>().ok()) {
+                Some(format_unix_date(secs))
+            } else {
+                Some(d)
+            }
+        });
+        let link = headers
+            .get_all("link")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .flat_map(|v| v.split(','))
+            .find(|l| l.contains("rel=\"deprecation\"") || l.contains("rel=deprecation"))
+            .and_then(|l| {
+                let start = l.find('<')? + 1;
+                let end = l[start..].find('>')? + start;
+                Some(l[start..end].to_string())
+            });
+        Some(Self {
+            since,
+            sunset,
+            link,
+        })
+    }
+
+    /// One line for stderr.
+    pub fn message(&self, path: &str) -> String {
+        let mut m = format!("warning: {path} is deprecated");
+        if let Some(s) = &self.since {
+            m.push_str(&format!(" since {s}"));
+        }
+        if let Some(s) = &self.sunset {
+            m.push_str(&format!(" and will be removed on {s}"));
+        }
+        if let Some(l) = &self.link {
+            m.push_str(&format!("; see {l}"));
+        }
+        m
+    }
+}
+
+/// `YYYY-MM-DD` for a Unix timestamp (days only, UTC).
+fn format_unix_date(secs: i64) -> String {
+    // Civil-from-days (Howard Hinnant), good for any date the API would send.
+    let days = secs.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Print the deprecation notice of `path` on stderr, once per process so a
+/// paginated listing does not repeat it.
+fn warn_if_deprecated(path: &str, headers: &HeaderMap) {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    let Some(d) = Deprecation::from_headers(headers) else {
+        return;
+    };
+    let seen = SEEN.get_or_init(Mutex::default);
+    let first = seen
+        .lock()
+        .map(|mut s| s.insert(path.to_string()))
+        .unwrap_or(true);
+    if first {
+        eprintln!("{}", d.message(path));
+    }
+}
+
 fn header_string(headers: &HeaderMap, name: &str) -> Option<String> {
     headers.get(name)?.to_str().ok().map(str::to_string)
 }
@@ -384,6 +488,52 @@ mod tests {
                 reset_secs: 42
             })
         );
+    }
+
+    #[test]
+    fn deprecation_headers_parse_in_both_formats() {
+        let h = HeaderMap::new();
+        assert_eq!(Deprecation::from_headers(&h), None);
+
+        let mut h = HeaderMap::new();
+        h.insert("Deprecation", HeaderValue::from_static("@1735689600"));
+        h.insert(
+            "Sunset",
+            HeaderValue::from_static("Wed, 01 Jul 2026 00:00:00 GMT"),
+        );
+        h.append(
+            "Link",
+            HeaderValue::from_static("</docs/changelog>; rel=\"deprecation\""),
+        );
+        let d = Deprecation::from_headers(&h).unwrap();
+        assert_eq!(d.since.as_deref(), Some("2025-01-01"));
+        assert_eq!(d.sunset.as_deref(), Some("Wed, 01 Jul 2026 00:00:00 GMT"));
+        assert_eq!(d.link.as_deref(), Some("/docs/changelog"));
+        assert_eq!(
+            d.message("/v2/old"),
+            "warning: /v2/old is deprecated since 2025-01-01 and will be removed on \
+             Wed, 01 Jul 2026 00:00:00 GMT; see /docs/changelog"
+        );
+
+        let mut h = HeaderMap::new();
+        h.insert("Deprecation", HeaderValue::from_static("true"));
+        let d = Deprecation::from_headers(&h).unwrap();
+        assert_eq!(
+            d,
+            Deprecation {
+                since: None,
+                sunset: None,
+                link: None
+            }
+        );
+        assert_eq!(d.message("/v2/old"), "warning: /v2/old is deprecated");
+    }
+
+    #[test]
+    fn unix_dates_format_as_civil_dates() {
+        assert_eq!(format_unix_date(0), "1970-01-01");
+        assert_eq!(format_unix_date(951_782_400), "2000-02-29");
+        assert_eq!(format_unix_date(1_760_227_200), "2025-10-12");
     }
 
     #[test]
