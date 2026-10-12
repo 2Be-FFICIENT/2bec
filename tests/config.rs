@@ -172,3 +172,45 @@ fn a_broken_config_file_is_reported_not_overwritten() {
         .stderr(predicate::str::contains("invalid config file"));
     assert_eq!(config_text(&dir), "not = [toml");
 }
+
+#[test]
+fn credential_store_is_a_top_level_setting() {
+    let dir = TempDir::new().unwrap();
+    cmd(&dir)
+        .args(["config", "set", "credential_store", "vault"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unknown credential store `vault`"));
+    cmd(&dir)
+        .args([
+            "--profile",
+            "dev",
+            "config",
+            "set",
+            "credential_store",
+            "keyring",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Credential store is now `keyring`",
+        ));
+    assert!(config_text(&dir).starts_with("credential_store = \"keyring\"\n"));
+    assert!(!config_text(&dir).contains("profiles"));
+    cmd(&dir)
+        .args(["config", "get", "credential_store"])
+        .assert()
+        .success()
+        .stdout("keyring\n");
+    // The config group keeps working even if the keyring cannot be opened.
+    cmd(&dir)
+        .args(["config", "unset", "credential_store"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Removed credential_store"));
+    cmd(&dir)
+        .args(["config", "get", "credential_store"])
+        .assert()
+        .success()
+        .stdout("file\n");
+}

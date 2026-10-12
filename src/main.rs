@@ -125,6 +125,26 @@ async fn main() -> ExitCode {
     }
 }
 
+/// The credential store the config asks for.
+fn open_store(
+    config_dir: &std::path::Path,
+    kind: config::CredentialStoreKind,
+) -> Result<auth::store::FileStore> {
+    let store = auth::store::FileStore::in_dir(config_dir);
+    match kind {
+        config::CredentialStoreKind::File => Ok(store),
+        #[cfg(feature = "keyring")]
+        config::CredentialStoreKind::Keyring => {
+            Ok(store.with_secrets(Box::new(auth::keyring::Keyring)))
+        }
+        #[cfg(not(feature = "keyring"))]
+        config::CredentialStoreKind::Keyring => anyhow::bail!(
+            "credential_store = \"keyring\" needs a build of 2bec with the `keyring` feature; \
+             run `2bec config set credential_store file` to use the file store"
+        ),
+    }
+}
+
 /// Print a one-line error to stderr; `--verbose` adds causes and trace id.
 fn report_error(err: &anyhow::Error, verbose: bool) {
     eprintln!("error: {err}");
@@ -156,10 +176,13 @@ async fn run(cli: Cli) -> Result<()> {
         api_url: cli.api_url.clone(),
     };
     let settings = config::Settings::resolve(&overrides, &config);
-    let store = auth::store::FileStore::in_dir(&config_dir);
     if let Command::Config(args) = cli.command {
-        return commands::config::run(&config_dir, &config, &settings, &store, args);
+        // Only the index of the store is needed here, and `config set
+        // credential_store file` must work even when the keyring cannot open.
+        let index = auth::store::FileStore::in_dir(&config_dir);
+        return commands::config::run(&config_dir, &config, &settings, &index, args);
     }
+    let store = open_store(&config_dir, settings.credential_store)?;
     let mut credential = auth::resolve(cli.token.as_deref(), &settings.profile, &store)?;
     let skip_refresh = matches!(&cli.command, Command::Auth(a) if a.skips_refresh());
     if !skip_refresh {
