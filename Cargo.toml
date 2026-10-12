@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Command-line client for the 2Be-FFICIENT API"
 license = "Apache-2.0"
+repository = "https://github.com/2Be-FFICIENT/2bec"
 
 [[bin]]
 name = "2bec"
