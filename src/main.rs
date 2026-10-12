@@ -84,6 +84,8 @@ enum Command {
     Runs(commands::runs::RunsArgs),
     /// Browse the catalog of scenarios and their groups
     Scenarios(commands::scenarios::ScenariosArgs),
+    /// Runtime variables: the named values the alert hooks receive
+    Variables(commands::variables::VariablesArgs),
     /// Webhooks: subscriptions of your URLs to events, secrets, deliveries
     Webhooks(commands::webhooks::WebhooksArgs),
 }
@@ -152,6 +154,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Reports(args) => commands::reports::run(&ctx, args).await?,
         Command::Runs(args) => commands::runs::run(&ctx, args).await?,
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
+        Command::Variables(args) => commands::variables::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,
         Command::Ping => {
             let r = ctx.client()?.ping().await?;

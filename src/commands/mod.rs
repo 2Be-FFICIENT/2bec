@@ -12,6 +12,7 @@ pub mod reports;
 pub mod runs;
 pub mod scenarios;
 pub mod settings;
+pub mod variables;
 pub mod webhooks;
 
 use anyhow::Result;
