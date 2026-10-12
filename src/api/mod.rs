@@ -24,4 +24,5 @@ pub mod runs;
 pub mod scenarios;
 pub mod scopes;
 pub mod settings;
+pub mod variables;
 pub mod webhooks;
