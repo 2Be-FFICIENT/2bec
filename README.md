@@ -48,6 +48,12 @@ tar xzf 2bec-<version>-linux-x64.tar.gz
 install -m 755 2bec-<version>-linux-x64/2bec ~/.local/bin/
 ```
 
+Already installed? `2bec upgrade` fetches the latest release from the same
+feed, checks it against `SHA256SUMS` and replaces the binary in place
+(`--check` only reports, `--version 0.1.0` pins or downgrades, `--feed` or
+`TWOBEC_INSTALL_URL` name another feed); the completions and manual pages the
+installer put under `share/` are regenerated.
+
 From source: `cargo build --release` (add `--features keyring` for OS keyring
 support, which the release binaries include).
 
@@ -94,6 +100,7 @@ lists the actions.
 | `tickets` | Support requests between the space and the platform's team |
 | `completion` | Print a shell completion script (bash, zsh, fish, powershell, elvish) |
 | `man` | Print or install the manual pages |
+| `upgrade` | Replace this binary with the latest release (or a pinned version) |
 
 ## Configuration
 

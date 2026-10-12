@@ -19,5 +19,6 @@ mod reports;
 mod runs;
 mod scenario_settings;
 mod scenarios;
+mod upgrade;
 mod variables;
 mod webhooks;

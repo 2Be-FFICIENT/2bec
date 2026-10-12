@@ -150,7 +150,7 @@ jobs:
           irm https://api.2befficient.com/cli/install.ps1 | iex
           \`\`\`
 
-          The installer checks the archive against \`SHA256SUMS\`, puts \`2bec\` on your PATH and, on Linux and macOS, installs the shell completions and manual pages. Already installed? Run the same line again to update. To pin this version: \`TWOBEC_VERSION=$VERSION\` before the command (\`\$env:TWOBEC_VERSION='$VERSION'\` in PowerShell). Then \`2bec auth login\`.
+          The installer checks the archive against \`SHA256SUMS\`, puts \`2bec\` on your PATH and, on Linux and macOS, installs the shell completions and manual pages. Already installed? \`2bec upgrade\` (or run the same line again). To pin this version: \`TWOBEC_VERSION=$VERSION\` before the command (\`\$env:TWOBEC_VERSION='$VERSION'\` in PowerShell). Then \`2bec auth login\`.
 
           By hand: the archives below hold the binary, the completions and the manual pages; see the [README](https://github.com/2Be-FFICIENT/2bec#install).
 

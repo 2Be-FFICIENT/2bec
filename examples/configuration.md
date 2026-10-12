@@ -1,6 +1,6 @@
 # Configuration
 
-Precedence, the config file and profiles, the `config` command, shell completions and manual pages.
+Precedence, the config file and profiles, the `config` command, shell completions and manual pages, upgrading.
 
 ## Precedence and profiles
 
@@ -63,3 +63,24 @@ Both are generated from the command definitions, so they always match `--help`:
 2bec man --dir ~/.local/share/man/man1    # install one page per command
 ```
 
+## Upgrading
+
+`2bec upgrade` reads the release feed the installer reads
+(`https://api.2befficient.com/cli`), checks the archive of your platform
+against the release's `SHA256SUMS` and replaces the running binary in place.
+The feed is anonymous: no credential is sent, and no config file is read.
+
+```sh
+2bec upgrade                          # the latest release
+2bec upgrade --check                  # say whether a newer release exists, change nothing
+2bec upgrade --check --json           # {"current":"0.1.1","target":"0.2.0","upToDate":false,...}
+2bec upgrade --version 0.1.0          # pin a version (also downgrades)
+sudo 2bec upgrade                     # when the binary sits in a root-owned directory
+TWOBEC_INSTALL_URL=https://api.next.example/cli 2bec upgrade   # another feed (--feed does the same)
+```
+
+The completions and manual pages `install.sh` put under the `share` beside
+the binary (or `~/.local/share`) are regenerated from the new binary when
+they are there; nothing is created in a new location. On Windows the
+previous executable stays as `2bec.exe.old` until the next run deletes it.
+A `--check` that finds nothing new, or an upgrade already done, exits 0.
