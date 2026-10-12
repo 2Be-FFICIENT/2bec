@@ -29,6 +29,11 @@ thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 toml = "1.1.8"
 
+# Line tables are enough for readable backtraces and cut link time and the
+# CI cache size; full debug info is one `CARGO_PROFILE_DEV_DEBUG=2` away.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 opt-level = 3
 lto = "thin"
