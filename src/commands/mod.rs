@@ -1,9 +1,11 @@
 //! Command implementations, one module per resource.
 
 pub mod alerts;
+pub mod audit;
 pub mod auth;
 pub mod availability;
 pub mod badges;
+pub mod comments;
 pub mod incidents;
 pub mod interruptions;
 pub mod metrics;
@@ -16,6 +18,7 @@ pub mod scenarios;
 pub mod security;
 pub mod settings;
 pub mod tags;
+pub mod tickets;
 pub mod users;
 pub mod variables;
 pub mod webhooks;

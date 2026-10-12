@@ -62,12 +62,16 @@ struct Cli {
 enum Command {
     /// Alert configurations, recipients, suspensions and the alerts sent
     Alerts(commands::alerts::AlertsArgs),
+    /// The administration history: who did what on the space
+    Audit(commands::audit::AuditArgs),
     /// Log in, show or drop the credential used to call the API
     Auth(commands::auth::AuthArgs),
     /// How the availability rate is computed and the targets it is read against
     Availability(commands::availability::AvailabilityArgs),
     /// Badges: symbols drawn on the runs matching a rule over their tags
     Badges(commands::badges::BadgesArgs),
+    /// The team's comments on the runs, across scenarios
+    Comments(commands::comments::CommentsArgs),
     /// Streaks of consecutive failed runs
     Incidents(commands::incidents::IncidentsArgs),
     /// Planned non-observation windows and rules
@@ -93,6 +97,8 @@ enum Command {
     SecuritySettings(commands::security::SecuritySettingsArgs),
     /// Tags a run may carry: the space's own, the robots' and the platform's
     Tags(commands::tags::TagsArgs),
+    /// Support requests between the space and the platform's team
+    Tickets(commands::tickets::TicketsArgs),
     /// The users of the space, their roles and access profile
     Users(commands::users::UsersArgs),
     /// Runtime variables: the named values the alert hooks receive
@@ -155,9 +161,11 @@ async fn run(cli: Cli) -> Result<()> {
 
     match cli.command {
         Command::Alerts(args) => commands::alerts::run(&ctx, args).await?,
+        Command::Audit(args) => commands::audit::run(&ctx, args).await?,
         Command::Auth(args) => commands::auth::run(&ctx, args).await?,
         Command::Availability(args) => commands::availability::run(&ctx, args).await?,
         Command::Badges(args) => commands::badges::run(&ctx, args).await?,
+        Command::Comments(args) => commands::comments::run(&ctx, args).await?,
         Command::Incidents(args) => commands::incidents::run(&ctx, args).await?,
         Command::Interruptions(args) => commands::interruptions::run(&ctx, args).await?,
         Command::Metrics(args) => commands::metrics::run(&ctx, args).await?,
@@ -169,6 +177,7 @@ async fn run(cli: Cli) -> Result<()> {
         Command::Scenarios(args) => commands::scenarios::run(&ctx, args).await?,
         Command::SecuritySettings(args) => commands::security::run(&ctx, args).await?,
         Command::Tags(args) => commands::tags::run(&ctx, args).await?,
+        Command::Tickets(args) => commands::tickets::run(&ctx, args).await?,
         Command::Users(args) => commands::users::run(&ctx, args).await?,
         Command::Variables(args) => commands::variables::run(&ctx, args).await?,
         Command::Webhooks(args) => commands::webhooks::run(&ctx, args).await?,

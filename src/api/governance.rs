@@ -32,8 +32,6 @@ pub const AUDIT_AREAS: [&str; 17] = [
 pub const AUDIT_OUTCOMES: [&str; 3] = ["succeeded", "failed", "partial"];
 /// The `source` values of an entry.
 pub const AUDIT_SOURCES: [&str; 4] = ["web", "worker", "api", "agent"];
-/// The audit list covers this many days at most.
-pub const AUDIT_MAX_DAYS: u32 = 366;
 /// The `outcome` values of the comments filter: the run's status.
 pub const COMMENT_OUTCOMES: [&str; 3] = ["ok", "failed", "neutralized"];
 /// The comments list takes this many scenarios at most.
