@@ -195,7 +195,7 @@ pub struct Diagnosis {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Artifact {
-    /// `video`, `screenshot` or `wav`.
+    /// `video`, `screenshot`, `fluxzy`, `har`, `pcap` or `wav`.
     pub kind: String,
     pub content_type: String,
     pub url: String,

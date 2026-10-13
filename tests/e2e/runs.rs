@@ -238,6 +238,49 @@ async fn download_writes_the_file_atomically() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn download_knows_the_capture_kinds() {
+    let server = MockServer::start().await;
+    for (kind, content_type) in [
+        ("fluxzy", "application/zip"),
+        ("har", "application/json"),
+        ("pcap", "application/x-pcapng"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/v2/runs/{RUN}/artifacts/{kind}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", content_type)
+                    .set_body_bytes(kind.as_bytes().to_vec()),
+            )
+            .mount(&server)
+            .await;
+    }
+    let dir = TempDir::new().unwrap();
+
+    for (kind, file) in [
+        ("fluxzy", format!("{RUN}.fxzy")),
+        ("har", format!("{RUN}.har")),
+        ("pcap", format!("{RUN}.pcapng")),
+    ] {
+        cmd(&server, &dir)
+            .current_dir(dir.path())
+            .args(["runs", "download", RUN, kind])
+            .assert()
+            .success()
+            .stderr(predicate::str::contains(&file));
+        assert_eq!(
+            std::fs::read(dir.path().join(&file)).unwrap(),
+            kind.as_bytes()
+        );
+    }
+
+    cmd(&server, &dir)
+        .args(["runs", "download", RUN, "fiddler"])
+        .assert()
+        .code(2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn comment_add_is_idempotent_and_edit_sends_if_match() {
     let server = MockServer::start().await;
     let comment = serde_json::json!({"id": COMMENT, "author": "ci", "at": "2026-10-11T09:00:00+02:00", "text": "hello"});
