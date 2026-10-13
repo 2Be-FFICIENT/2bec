@@ -62,7 +62,14 @@ can take up to two minutes the first time; raise --timeout accordingly.")]
         #[command(flatten)]
         output: OutputArgs,
     },
-    /// List the files a run produced (video, screenshot, wav)
+    /// List the files a run produced (video, screenshot, captures, wav)
+    #[command(after_help = "\
+The HTTP capture comes in three kinds derived from the same archive: fluxzy
+(the robot's capture, a zip the fluxzy tools open), har (HTTP Archive 1.2,
+bodies up to 512 KB each) and pcap (a pcapng with the TLS keys merged in, so
+Wireshark shows it decrypted). Captures and recordings are kept a few weeks;
+absent kinds are not listed. A capture holds the traffic as sent, credentials
+included.")]
     Artifacts {
         /// Run id
         id: String,
@@ -74,11 +81,19 @@ can take up to two minutes the first time; raise --timeout accordingly.")]
 Examples:
   2bec runs download 7f3c... video              # writes 7f3c....mp4
   2bec runs download 7f3c... screenshot -o s.png
-  2bec runs download 7f3c... wav -o - | ffplay -")]
+  2bec runs download 7f3c... har -o - | jq '.log.entries | length'
+  2bec runs download 7f3c... pcap               # writes 7f3c....pcapng
+  2bec runs download 7f3c... wav -o - | ffplay -
+
+Kinds: video (mp4), screenshot (png), fluxzy (the robot's capture, a zip
+the fluxzy tools open), har (HTTP Archive 1.2), pcap (pcapng, TLS keys
+included), wav (the audio of a voice call). `2bec runs artifacts` lists the
+ones a run still has; the captures hold the traffic as sent, credentials
+included.")]
     Download {
         /// Run id
         id: String,
-        /// Artifact kind: video, screenshot or wav
+        /// Artifact kind: video, screenshot, fluxzy, har, pcap or wav
         kind: ArtifactKind,
         /// Destination file; `-` for stdout [default: <id>.<ext>]
         #[arg(long, short = 'o', value_name = "FILE")]
@@ -270,6 +285,9 @@ struct TagsWrite<'a> {
 pub enum ArtifactKind {
     Video,
     Screenshot,
+    Fluxzy,
+    Har,
+    Pcap,
     Wav,
 }
 
@@ -278,14 +296,22 @@ impl ArtifactKind {
         match self {
             Self::Video => "video",
             Self::Screenshot => "screenshot",
+            Self::Fluxzy => "fluxzy",
+            Self::Har => "har",
+            Self::Pcap => "pcap",
             Self::Wav => "wav",
         }
     }
 
+    /// The extension of the default file name, matching what the API itself
+    /// suggests in `Content-Disposition`.
     fn extension(self) -> &'static str {
         match self {
             Self::Video => "mp4",
             Self::Screenshot => "png",
+            Self::Fluxzy => "fxzy",
+            Self::Har => "har",
+            Self::Pcap => "pcapng",
             Self::Wav => "wav",
         }
     }
