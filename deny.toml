@@ -21,7 +21,11 @@ all-features = true
 # Fail on any RustSec advisory (vulnerable, unmaintained, unsound or yanked)
 # affecting a crate in Cargo.lock. Silence one only with a reason:
 # ignore = [{ id = "RUSTSEC-YYYY-NNNN", reason = "..." }]
-ignore = []
+ignore = [
+    { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; transitive via keyring -> zbus 5, no fix until keyring moves to zbus 6" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; transitive via keyring -> zbus 5, no fix until keyring moves to zbus 6" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; transitive via keyring -> zbus 5, no fix until keyring moves to zbus 6" },
+]
 
 [licenses]
 # Licenses compatible with shipping an Apache-2.0 binary. Every new license
